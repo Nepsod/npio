@@ -1,0 +1,71 @@
+use async_trait::async_trait;
+use crate::cancellable::Cancellable;
+use crate::error::NpioResult;
+use crate::file_info::FileInfo;
+use crate::iostream::{InputStream, OutputStream};
+
+#[async_trait]
+pub trait File: Send + Sync {
+    /// Gets the URI for this file.
+    fn uri(&self) -> String;
+
+    /// Gets the base name (filename) of the file.
+    fn basename(&self) -> String;
+
+    /// Gets the parent file, if it exists.
+    fn parent(&self) -> Option<Box<dyn File>>;
+
+    /// Gets a child file with the given name.
+    fn child(&self, name: &str) -> Box<dyn File>;
+
+    /// Queries information about the file.
+    /// `attributes` is a comma-separated list of attributes to query (e.g. "standard::*,time::modified").
+    async fn query_info(&self, attributes: &str, cancellable: Option<&Cancellable>) -> NpioResult<FileInfo>;
+
+    /// Opens the file for reading.
+    async fn read(&self, cancellable: Option<&Cancellable>) -> NpioResult<Box<dyn InputStream>>;
+
+    /// Opens the file for writing (creates or overwrites).
+    async fn replace(
+        &self,
+        etag: Option<&str>,
+        make_backup: bool,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<dyn OutputStream>>;
+    
+    /// Creates a new file for writing. Fails if it already exists.
+    async fn create_file(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<dyn OutputStream>>;
+
+    /// Appends to the file.
+    async fn append_to(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<dyn OutputStream>>;
+
+    /// Deletes the file.
+    async fn delete(&self, cancellable: Option<&Cancellable>) -> NpioResult<()>;
+
+    /// Moves the file to a new location.
+    async fn move_to(
+        &self,
+        destination: &dyn File,
+        flags: u32, // TODO: Define CopyFlags enum
+        cancellable: Option<&Cancellable>,
+        // progress_callback: ...
+    ) -> NpioResult<()>;
+    
+    /// Copies the file to a new location.
+    async fn copy(
+        &self,
+        destination: &dyn File,
+        flags: u32, // TODO: Define CopyFlags enum
+        cancellable: Option<&Cancellable>,
+        // progress_callback: ...
+    ) -> NpioResult<()>;
+
+    /// Checks if the file exists.
+    async fn exists(&self, cancellable: Option<&Cancellable>) -> NpioResult<bool>;
+}

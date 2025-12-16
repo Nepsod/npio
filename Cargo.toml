@@ -1,0 +1,18 @@
+[package]
+name = "npio"
+version = "0.0.1"
+authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
+description = "Nepsod Input-Output library. GIO-inspired library for Linux filesystem and device abstractions."
+edition = "2021"
+repository = "https://github.com/Nepsod/npio"
+license = "LGPL-3.0-or-later"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+once_cell = "1.18"
+
+
+[lib]
+name = "npio"
+path = "src/lib.rs"
