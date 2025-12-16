@@ -1,3 +1,5 @@
+pub mod local;
+
 use async_trait::async_trait;
 use crate::cancellable::Cancellable;
 use crate::error::NpioResult;
@@ -47,6 +49,16 @@ pub trait File: Send + Sync {
 
     /// Deletes the file.
     async fn delete(&self, cancellable: Option<&Cancellable>) -> NpioResult<()>;
+
+    /// Makes a directory.
+    async fn make_directory(&self, cancellable: Option<&Cancellable>) -> NpioResult<()>;
+
+    /// Enumerates children of this directory.
+    async fn enumerate_children(
+        &self,
+        attributes: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<dyn crate::file_enumerator::FileEnumerator>>;
 
     /// Moves the file to a new location.
     async fn move_to(
