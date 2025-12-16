@@ -16,6 +16,7 @@ infer = "0.15"
 notify = "6.1"
 futures = "0.3"
 bitflags = "2.4"
+directories = "5.0"
 
 
 [lib]

@@ -9,6 +9,7 @@ pub mod job;
 pub mod metadata;
 pub mod model;
 pub mod monitor;
+pub mod service;
 
 pub use backend::{Backend, BackendRegistry, get_file_for_uri, register_backend};
 pub use cancellable::Cancellable;
@@ -21,3 +22,4 @@ pub use metadata::MimeResolver;
 pub use model::directory::{DirectoryModel, DirectoryUpdate};
 pub use monitor::{FileMonitor, FileMonitorEvent};
 pub use job::{CopyFlags, ProgressCallback};
+pub use service::places::{PlacesService, Place};
