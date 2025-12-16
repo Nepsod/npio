@@ -56,7 +56,7 @@ impl File for LocalFile {
         Box::new(LocalFile::new(self.path.join(name)))
     }
 
-    async fn query_info(&self, _attributes: &str, cancellable: Option<&Cancellable>) -> NpioResult<FileInfo> {
+    async fn query_info(&self, attributes: &str, cancellable: Option<&Cancellable>) -> NpioResult<FileInfo> {
         if let Some(c) = cancellable {
             c.check()?;
         }
@@ -82,7 +82,20 @@ impl File for LocalFile {
         };
         info.set_file_type(file_type);
 
-        // TODO: Implement more attributes based on `attributes` filter
+        // MIME detection
+        if attributes.contains("standard::content-type") || attributes.contains("standard::*") {
+            let mime_type = if file_type == FileType::Directory {
+                "inode/directory".to_string()
+            } else {
+                crate::metadata::MimeResolver::guess_mime_type(&self.path)
+            };
+            info.set_content_type(&mime_type);
+            
+            if attributes.contains("standard::icon") || attributes.contains("standard::*") {
+                 let icon = crate::metadata::MimeResolver::get_icon_name(&mime_type);
+                 info.set_attribute("standard::icon", crate::file_info::FileAttributeType::String(icon));
+            }
+        }
         
         Ok(info)
     }
