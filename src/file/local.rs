@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use async_trait::async_trait;
 use tokio::fs::{self, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::cancellable::Cancellable;
 use crate::error::{NpioError, NpioResult, IOErrorEnum};
@@ -194,42 +195,95 @@ impl File for LocalFile {
     async fn move_to(
         &self,
         destination: &dyn File,
-        _flags: u32,
+        flags: crate::job::CopyFlags,
         cancellable: Option<&Cancellable>,
+        progress_callback: Option<crate::job::ProgressCallback>,
     ) -> NpioResult<()> {
         if let Some(c) = cancellable {
             c.check()?;
         }
-        // Check if destination is also local
-        // This is a bit hacky, ideally we'd have a way to check backend type
+        
+        // Basic implementation for now: rename if local, else copy+delete
         if destination.uri().starts_with("file://") {
-             // Extract path from URI (simplified)
-             let dest_path_str = destination.uri().trim_start_matches("file://").to_string();
-             fs::rename(&self.path, dest_path_str).await?;
+             // Parse destination path
+             let uri = destination.uri();
+             let dest_path_str = uri.trim_start_matches("file://");
+             let dest_path = PathBuf::from(dest_path_str);
+             
+             // Check overwrite
+             if dest_path.exists() && !flags.contains(crate::job::CopyFlags::OVERWRITE) {
+                 return Err(NpioError::new(IOErrorEnum::Exists, "Destination exists"));
+             }
+             
+             tokio::fs::rename(&self.path, dest_path).await
+                .map_err(|e| NpioError::new(IOErrorEnum::Failed, e.to_string()))?;
+                
              Ok(())
         } else {
-             // Fallback to copy and delete (generic implementation)
-             // For now, return NotSupported
-             Err(NpioError::new(IOErrorEnum::NotSupported, "Cross-backend move not yet supported"))
+            // Fallback to copy + delete
+            self.copy(destination, flags, cancellable, progress_callback).await?;
+            self.delete(cancellable).await?;
+            Ok(())
         }
     }
-    
+
     async fn copy(
         &self,
         destination: &dyn File,
-        _flags: u32,
+        flags: crate::job::CopyFlags,
         cancellable: Option<&Cancellable>,
+        progress_callback: Option<crate::job::ProgressCallback>,
     ) -> NpioResult<()> {
         if let Some(c) = cancellable {
             c.check()?;
         }
-         if destination.uri().starts_with("file://") {
-             let dest_path_str = destination.uri().trim_start_matches("file://").to_string();
-             fs::copy(&self.path, dest_path_str).await?;
-             Ok(())
+
+        // Open source
+        let mut input = self.read(cancellable).await?;
+        
+        // Open destination
+        let mut output = if flags.contains(crate::job::CopyFlags::OVERWRITE) {
+            destination.replace(None, false, cancellable).await?
         } else {
-             Err(NpioError::new(IOErrorEnum::NotSupported, "Cross-backend copy not yet supported"))
+            destination.create_file(cancellable).await?
+        };
+        
+        // Copy loop with progress
+        let mut buffer = [0u8; 8192];
+        let mut total_written = 0;
+        let total_size = self.query_info("standard::size", cancellable).await
+            .ok()
+            .map(|i| i.get_size())
+            .unwrap_or(0) as u64;
+
+        loop {
+            if let Some(c) = cancellable {
+                if c.is_cancelled() {
+                    return Err(NpioError::new(IOErrorEnum::Cancelled, "Operation cancelled"));
+                }
+            }
+
+            let n = input.read(&mut buffer).await
+                .map_err(|e| NpioError::new(IOErrorEnum::Failed, e.to_string()))?;
+                
+            if n == 0 {
+                break;
+            }
+            
+            output.write_all(&buffer[..n]).await
+                .map_err(|e| NpioError::new(IOErrorEnum::Failed, e.to_string()))?;
+                
+            total_written += n as u64;
+            
+            if let Some(ref cb) = progress_callback {
+                cb(total_written, total_size);
+            }
         }
+        
+        output.close(cancellable)?;
+        input.close(cancellable)?;
+        
+        Ok(())
     }
 
     async fn exists(&self, cancellable: Option<&Cancellable>) -> NpioResult<bool> {

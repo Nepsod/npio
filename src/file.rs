@@ -64,18 +64,18 @@ pub trait File: Send + Sync + std::fmt::Debug {
     async fn move_to(
         &self,
         destination: &dyn File,
-        flags: u32, // TODO: Define CopyFlags enum
+        flags: crate::job::CopyFlags,
         cancellable: Option<&Cancellable>,
-        // progress_callback: ...
+        progress_callback: Option<crate::job::ProgressCallback>,
     ) -> NpioResult<()>;
     
     /// Copies the file to a new location.
     async fn copy(
         &self,
         destination: &dyn File,
-        flags: u32, // TODO: Define CopyFlags enum
+        flags: crate::job::CopyFlags,
         cancellable: Option<&Cancellable>,
-        // progress_callback: ...
+        progress_callback: Option<crate::job::ProgressCallback>,
     ) -> NpioResult<()>;
 
     /// Checks if the file exists.
