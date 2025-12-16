@@ -7,7 +7,7 @@ use crate::file_info::FileInfo;
 use crate::iostream::{InputStream, OutputStream};
 
 #[async_trait]
-pub trait File: Send + Sync {
+pub trait File: Send + Sync + std::fmt::Debug {
     /// Gets the URI for this file.
     fn uri(&self) -> String;
 
@@ -80,4 +80,10 @@ pub trait File: Send + Sync {
 
     /// Checks if the file exists.
     async fn exists(&self, cancellable: Option<&Cancellable>) -> NpioResult<bool>;
+
+    /// Monitors the file or directory for changes.
+    async fn monitor(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<crate::monitor::FileMonitor>>;
 }

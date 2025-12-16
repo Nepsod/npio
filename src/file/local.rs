@@ -25,6 +25,7 @@ impl OutputStream for fs::File {
     }
 }
 
+#[derive(Debug)]
 pub struct LocalFile {
     path: PathBuf,
 }
@@ -237,8 +238,68 @@ impl File for LocalFile {
         }
         Ok(self.path.exists())
     }
-}
 
+    async fn monitor(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Box<crate::monitor::FileMonitor>> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        use notify::{Watcher, RecursiveMode, EventKind};
+        use tokio::sync::mpsc;
+        use crate::monitor::{FileMonitor, FileMonitorEvent};
+
+        let (tx, rx) = mpsc::channel(100);
+        let path = self.path.clone();
+        let tx_clone = tx.clone();
+        
+        // Create watcher with a closure that sends events to the tokio channel
+        let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            match res {
+                Ok(event) => {
+                    let npio_event = match event.kind {
+                        EventKind::Create(_) => {
+                            if let Some(p) = event.paths.first() {
+                                Some(FileMonitorEvent::Created(Box::new(LocalFile::new(p.clone()))))
+                            } else {
+                                None
+                            }
+                        },
+                        EventKind::Modify(_) => {
+                            if let Some(p) = event.paths.first() {
+                                Some(FileMonitorEvent::Changed(Box::new(LocalFile::new(p.clone())), None))
+                            } else {
+                                None
+                            }
+                        },
+                        EventKind::Remove(_) => {
+                            if let Some(p) = event.paths.first() {
+                                Some(FileMonitorEvent::Deleted(Box::new(LocalFile::new(p.clone()))))
+                            } else {
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    if let Some(e) = npio_event {
+                        // We are in notify's thread, so we can block
+                        let _ = tx_clone.blocking_send(e);
+                    }
+                },
+                Err(_) => {},
+            }
+        }).map_err(|e| NpioError::new(IOErrorEnum::Failed, e.to_string()))?;
+            
+        // Watch the path
+        watcher.watch(&path, RecursiveMode::NonRecursive)
+            .map_err(|e| NpioError::new(IOErrorEnum::Failed, e.to_string()))?;
+
+        Ok(Box::new(FileMonitor::new(rx, cancellable.cloned(), Some(Box::new(watcher)))))
+    }
+}
 struct LocalFileEnumerator {
     read_dir: fs::ReadDir,
 }
