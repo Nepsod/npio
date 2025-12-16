@@ -6,6 +6,7 @@ pub mod file_enumerator;
 pub mod file_info;
 pub mod iostream;
 pub mod metadata;
+pub mod model;
 pub mod monitor;
 
 pub use backend::{Backend, BackendRegistry, get_file_for_uri, register_backend};
@@ -16,4 +17,5 @@ pub use file_enumerator::FileEnumerator;
 pub use file_info::{FileInfo, FileAttributeType, FileType};
 pub use iostream::{InputStream, OutputStream};
 pub use metadata::MimeResolver;
+pub use model::directory::{DirectoryModel, DirectoryUpdate};
 pub use monitor::{FileMonitor, FileMonitorEvent};
