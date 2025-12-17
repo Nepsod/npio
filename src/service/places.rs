@@ -1,5 +1,3 @@
-use crate::file::File;
-use crate::file::local::LocalFile;
 use directories::UserDirs;
 
 #[derive(Debug, Clone)]

@@ -43,3 +43,10 @@ pub async fn delete(
 ) -> NpioResult<()> {
     file.delete(cancellable).await
 }
+
+pub async fn trash(
+    file: &dyn File,
+    cancellable: Option<&Cancellable>,
+) -> NpioResult<()> {
+    file.trash(cancellable).await
+}

@@ -86,4 +86,7 @@ pub trait File: Send + Sync + std::fmt::Debug {
         &self,
         cancellable: Option<&Cancellable>,
     ) -> NpioResult<Box<crate::monitor::FileMonitor>>;
+
+    /// Moves the file to the trash.
+    async fn trash(&self, cancellable: Option<&Cancellable>) -> NpioResult<()>;
 }
