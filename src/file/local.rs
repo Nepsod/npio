@@ -380,34 +380,57 @@ impl File for LocalFile {
         fs::create_dir_all(&trash_files).await?;
         fs::create_dir_all(&trash_info).await?;
 
-        // Get the original path as URI-encoded string
-        let original_path = self.path.canonicalize()
-            .unwrap_or_else(|_| self.path.clone());
+        // Get the original path as absolute path (required by FreeDesktop Trash spec)
+        // First try canonicalize, which resolves symlinks and makes absolute
+        let original_path = match self.path.canonicalize() {
+            Ok(path) => path,
+            Err(_) => {
+                // If canonicalize fails (e.g., file doesn't exist yet or symlink broken),
+                // convert relative path to absolute using current directory
+                if self.path.is_absolute() {
+                    self.path.clone()
+                } else {
+                    let current_dir = std::env::current_dir()
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Could not get current directory: {}", e)))?;
+                    current_dir.join(&self.path)
+                }
+            }
+        };
         let original_path_str = original_path.to_string_lossy().to_string();
         
         // Get the basename for the trash file
         let basename = self.basename();
         
         // Handle name conflicts by appending numbers
+        // Use atomic rename operation to avoid race conditions
         let mut trash_file_path = trash_files.join(&basename);
         let mut counter = 1;
-        while trash_file_path.exists() {
-            let stem = Path::new(&basename)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(&basename);
-            let ext = Path::new(&basename)
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|e| format!(".{}", e))
-                .unwrap_or_else(String::new);
-            let new_name = format!("{}.{}", stem, counter);
-            trash_file_path = trash_files.join(format!("{}{}", new_name, ext));
-            counter += 1;
+        
+        // Try to rename atomically - if it fails due to file existing, generate new name and retry
+        loop {
+            match tokio::fs::rename(&self.path, &trash_file_path).await {
+                Ok(_) => break, // Successfully moved
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // File exists, generate new name and retry
+                    let stem = Path::new(&basename)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&basename);
+                    let ext = Path::new(&basename)
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map(|e| format!(".{}", e))
+                        .unwrap_or_else(String::new);
+                    let new_name = format!("{}.{}", stem, counter);
+                    trash_file_path = trash_files.join(format!("{}{}", new_name, ext));
+                    counter += 1;
+                }
+                Err(e) => {
+                    // Other error (permission denied, cross-filesystem, etc.)
+                    return Err(NpioError::from(e));
+                }
+            }
         }
-
-        // Move the file to trash
-        tokio::fs::rename(&self.path, &trash_file_path).await?;
 
         // Create trashinfo file
         let trashinfo_name = trash_file_path
@@ -448,10 +471,11 @@ impl File for LocalFile {
         
         // Percent-encode the path, preserving forward slashes as path separators
         // We encode each path component separately to preserve the path structure
-        let is_absolute = original_path_str.starts_with('/');
-        let path_components: Vec<&str> = if is_absolute {
+        // Note: original_path is guaranteed to be absolute at this point
+        let path_components: Vec<&str> = if original_path_str.starts_with('/') {
             original_path_str[1..].split('/').collect()
         } else {
+            // This should not happen as we ensure absolute path above, but handle gracefully
             original_path_str.split('/').collect()
         };
         
@@ -460,11 +484,8 @@ impl File for LocalFile {
             .map(|component| utf8_percent_encode(component, PATH_ENCODE_SET).to_string())
             .collect();
         
-        let encoded_path = if is_absolute {
-            format!("/{}", encoded_components.join("/"))
-        } else {
-            encoded_components.join("/")
-        };
+        // Ensure absolute path format (should always be absolute at this point)
+        let encoded_path = format!("/{}", encoded_components.join("/"));
         
         // Create trashinfo content with properly encoded path
         let trashinfo_content = format!(
