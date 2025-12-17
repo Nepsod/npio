@@ -419,12 +419,57 @@ impl File for LocalFile {
         // Format deletion date as ISO 8601
         let deletion_date = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
         
-        // Create trashinfo content
-        // Note: Path should be URI-encoded, but for simplicity we'll use the raw path
-        // In a full implementation, we'd use percent-encoding
+        // Percent-encode the path according to FreeDesktop Trash specification
+        // The Path field must be URI-encoded (percent-encoded) to handle spaces and special characters
+        use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+        
+        // Define the set of characters that need encoding for file:// URIs
+        // According to RFC 3986, we encode everything except unreserved characters:
+        // ALPHA, DIGIT, '-', '.', '_', '~', and '/' (path separator)
+        // We preserve '/' as it's the path separator, but encode spaces and special chars
+        const PATH_ENCODE_SET: &AsciiSet = &CONTROLS
+            .add(b' ')
+            .add(b'"')
+            .add(b'<')
+            .add(b'>')
+            .add(b'`')
+            .add(b'#')
+            .add(b'?')
+            .add(b'{')
+            .add(b'}')
+            .add(b'[')
+            .add(b']')
+            .add(b'|')
+            .add(b'\\')
+            .add(b'^')
+            .add(b'&')
+            .add(b'*')
+            .add(b'%');
+        
+        // Percent-encode the path, preserving forward slashes as path separators
+        // We encode each path component separately to preserve the path structure
+        let is_absolute = original_path_str.starts_with('/');
+        let path_components: Vec<&str> = if is_absolute {
+            original_path_str[1..].split('/').collect()
+        } else {
+            original_path_str.split('/').collect()
+        };
+        
+        let encoded_components: Vec<String> = path_components
+            .iter()
+            .map(|component| utf8_percent_encode(component, PATH_ENCODE_SET).to_string())
+            .collect();
+        
+        let encoded_path = if is_absolute {
+            format!("/{}", encoded_components.join("/"))
+        } else {
+            encoded_components.join("/")
+        };
+        
+        // Create trashinfo content with properly encoded path
         let trashinfo_content = format!(
             "[Trash Info]\nPath={}\nDeletionDate={}\n",
-            original_path_str, deletion_date
+            encoded_path, deletion_date
         );
 
         // Write trashinfo file
