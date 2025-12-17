@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
 use tokio::fs;
-use directories::ProjectDirs;
+use directories::{ProjectDirs, UserDirs};
 use crate::error::NpioResult;
 
 #[derive(Debug, Clone)]
@@ -26,8 +26,17 @@ impl BookmarksService {
                 ProjectDirs::from("", "", "")
                     .map(|dirs| dirs.config_dir().to_path_buf())
             })
+            .or_else(|| {
+                // Fallback: use UserDirs to get home directory, then join .config
+                UserDirs::new()
+                    .map(|dirs| dirs.home_dir().join(".config"))
+            })
             .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "~".to_string()))
+                // Last resort: try HOME env var, but this should rarely be needed
+                // since UserDirs should work on most systems
+                std::env::var("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("/tmp"))
                     .join(".config")
             });
 
