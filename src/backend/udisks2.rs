@@ -566,8 +566,16 @@ impl UDisks2Volume {
             }
         };
 
-        let mount_point = mount_points.first()
-            .and_then(|mp| String::from_utf8(mp.clone()).ok());
+        let mount_point = mount_points.first().and_then(|mp| {
+            match String::from_utf8(mp.clone()) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    eprintln!("UDisks2: Failed to convert mount point to UTF-8: {}", e);
+                    // Try lossy conversion as fallback
+                    Some(String::from_utf8_lossy(mp).to_string())
+                }
+            }
+        });
 
         let name = label.clone()
             .or_else(|| uuid.clone())

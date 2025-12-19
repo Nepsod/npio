@@ -8,7 +8,7 @@ use crate::file::local::LocalFile;
 
 /// Represents a mount entry from /proc/self/mountinfo
 #[derive(Debug, Clone)]
-struct MountEntry {
+pub(crate) struct MountEntry {
     // These fields are parsed from mountinfo but reserved for future use
     #[allow(dead_code)]
     mount_id: u32,
