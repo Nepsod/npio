@@ -72,6 +72,7 @@ pub use file_info::{FileInfo, FileAttributeType, FileType};
 pub use iostream::{InputStream, OutputStream};
 pub use metadata::MimeResolver;
 pub use model::directory::{DirectoryModel, DirectoryUpdate};
+pub use model::devices::DevicesModel;
 pub use monitor::{FileMonitor, FileMonitorEvent};
 pub use mount::Mount;
 pub use job::{CopyFlags, ProgressCallback, trash};
