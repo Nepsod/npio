@@ -9,15 +9,22 @@ use crate::file::local::LocalFile;
 /// Represents a mount entry from /proc/self/mountinfo
 #[derive(Debug, Clone)]
 struct MountEntry {
+    // These fields are parsed from mountinfo but reserved for future use
+    #[allow(dead_code)]
     mount_id: u32,
+    #[allow(dead_code)]
     parent_id: u32,
+    #[allow(dead_code)]
     major_minor: String,
+    #[allow(dead_code)]
     root: PathBuf,
     mount_point: PathBuf,
     mount_options: String,
+    #[allow(dead_code)]
     optional_fields: String,
     filesystem_type: String,
     source: String,
+    #[allow(dead_code)]
     super_options: String,
 }
 
@@ -27,6 +34,8 @@ pub struct UnixMount {
     mount_point: PathBuf,
     source: String,
     filesystem_type: String,
+    // Reserved for future use (e.g., for mount/unmount operations)
+    #[allow(dead_code)]
     is_read_only: bool,
     is_system_internal: bool,
 }
@@ -34,7 +43,7 @@ pub struct UnixMount {
 impl UnixMount {
     fn new(entry: &MountEntry) -> Self {
         let is_read_only = entry.mount_options.contains("ro");
-        let is_system_internal = entry.mount_point == PathBuf::from("/")
+        let is_system_internal = entry.mount_point.as_path() == std::path::Path::new("/")
             || entry.mount_point.starts_with("/sys")
             || entry.mount_point.starts_with("/proc")
             || entry.mount_point.starts_with("/dev")
@@ -65,9 +74,8 @@ impl UnixMount {
             } else {
                 "drive-removable-media".to_string()
             }
-        } else if self.mount_point == PathBuf::from("/") {
-            "drive-harddisk".to_string()
         } else {
+            // Default to harddisk icon for root and other mounts
             "drive-harddisk".to_string()
         }
     }

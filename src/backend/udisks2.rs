@@ -228,6 +228,8 @@ struct UDisks2Drive {
     connection: Arc<Connection>,
     path: String,
     name: String,
+    // Vendor is used to construct name but stored for potential future use
+    #[allow(dead_code)]
     vendor: String,
     model: String,
     is_removable: bool,

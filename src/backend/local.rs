@@ -14,6 +14,12 @@ impl LocalBackend {
     }
 }
 
+impl Default for LocalBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Backend for LocalBackend {
     fn scheme(&self) -> &'static str {
         "file"
