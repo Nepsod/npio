@@ -45,6 +45,7 @@ impl ThumbnailBackend {
     pub fn get_cache_dir(size: ThumbnailSize) -> NpioResult<PathBuf> {
         use directories::ProjectDirs;
         
+        // Standard XDG cache path: ~/.cache/thumbnails/{normal|large|...}
         let cache_home = std::env::var("XDG_CACHE_HOME")
             .ok()
             .map(PathBuf::from)
@@ -64,14 +65,8 @@ impl ThumbnailBackend {
     /// Generates MD5 hash of URI for thumbnail filename
     /// According to freedesktop.org spec, thumbnails are named with MD5 hash of file URI
     pub fn uri_to_thumbnail_name(uri: &str) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        
-        // Simple hash implementation (in production, use proper MD5)
-        // For now, use a hash that's good enough for testing
-        let mut hasher = DefaultHasher::new();
-        uri.hash(&mut hasher);
-        format!("{:x}.png", hasher.finish())
+        let digest = md5::compute(uri.as_bytes());
+        format!("{:x}.png", digest)
     }
 
     /// Gets the thumbnail path for a file URI and size

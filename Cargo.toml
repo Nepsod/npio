@@ -21,6 +21,10 @@ chrono = "0.4"
 percent-encoding = "2.3"
 zbus = { version = "4.0", features = ["tokio"] }
 zvariant = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+md5 = "0.7"
+thumbnailify = "0.1.4"
+urlencoding = "2.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

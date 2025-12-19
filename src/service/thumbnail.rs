@@ -58,7 +58,6 @@ impl ThumbnailService {
     }
 
     /// Generates a thumbnail for a file
-    /// This is a placeholder - full implementation would invoke thumbnailers
     pub async fn generate_thumbnail(
         &self,
         file: &dyn File,
@@ -70,25 +69,45 @@ impl ThumbnailService {
         }
 
         let uri = file.uri();
-        let thumbnail_path = ThumbnailBackend::get_thumbnail_path(&uri, size)?;
+        let file_path_str = uri.trim_start_matches("file://");
+        let file_path = PathBuf::from(file_path_str);
         
-        // Create cache directory if it doesn't exist
-        if let Some(parent) = thumbnail_path.parent() {
-            fs::create_dir_all(parent).await?;
+        if !file_path.exists() {
+            return Err(NpioError::new(IOErrorEnum::NotFound, "File not found"));
         }
 
-        // TODO: Actually generate thumbnail using available thumbnailers
-        // For now, this is a placeholder that returns the path
-        // Full implementation would:
-        // 1. Check for .thumbnailer files in ~/.local/share/thumbnailers/
-        // 2. Find appropriate thumbnailer for file MIME type
-        // 3. Invoke thumbnailer to generate thumbnail
-        // 4. Save thumbnail to cache directory
+        let thumbnail_path = ThumbnailBackend::get_thumbnail_path(&uri, size)?;
         
-        Err(NpioError::new(
-            IOErrorEnum::NotSupported,
-            "Thumbnail generation not yet fully implemented. Requires thumbnailer integration.",
-        ))
+        // Ensure cache directory exists
+        if let Some(parent) = thumbnail_path.parent() {
+            fs::create_dir_all(parent).await.map_err(|e| {
+                NpioError::new(IOErrorEnum::Failed, format!("Failed to create cache dir: {}", e))
+            })?;
+        }
+
+        // Map size to thumbnailify size
+        let target_size = match size {
+            ThumbnailSize::Normal => thumbnailify::ThumbnailSize::Normal,
+            ThumbnailSize::Large => thumbnailify::ThumbnailSize::Large,
+            ThumbnailSize::XLarge => thumbnailify::ThumbnailSize::XLarge,
+            ThumbnailSize::XXLarge => thumbnailify::ThumbnailSize::XXLarge,
+        };
+
+        // Run generation in blocking task
+        let generated_path = tokio::task::spawn_blocking(move || {
+            thumbnailify::generate_thumbnail(&file_path, target_size)
+        })
+        .await
+        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Join error: {}", e)))?
+        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Thumbnail generation failed: {:?}", e)))?;
+
+        // Move generated thumbnail to correct location (MD5 name)
+        // thumbnailify generates with its own naming, we need to rename it to match standard
+        fs::rename(&generated_path, &thumbnail_path).await.map_err(|e| {
+            NpioError::new(IOErrorEnum::Failed, format!("Failed to move thumbnail to cache: {}", e))
+        })?;
+
+        Ok(thumbnail_path)
     }
 
     /// Gets or generates a thumbnail for a file
