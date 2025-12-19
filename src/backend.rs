@@ -1,5 +1,6 @@
 pub mod local;
 pub mod thumbnail;
+pub mod mount;
 
 use std::collections::HashMap;
 

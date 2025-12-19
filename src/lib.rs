@@ -62,6 +62,7 @@ pub mod service;
 pub mod volume;
 
 pub use backend::{Backend, BackendRegistry, get_file_for_uri, register_backend};
+pub use backend::mount::MountBackend;
 pub use cancellable::Cancellable;
 pub use drive::Drive;
 pub use error::{NpioError, NpioResult, IOErrorEnum};
