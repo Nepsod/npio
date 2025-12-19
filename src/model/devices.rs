@@ -18,9 +18,9 @@ use crate::cancellable::Cancellable;
 pub struct DevicesModel {
     mount_backend: Arc<MountBackend>,
     udisks2_backend: Arc<UDisks2Backend>,
-    mounts: Arc<RwLock<Vec<Box<dyn Mount>>>>,
-    drives: Arc<RwLock<Vec<Box<dyn Drive>>>>,
-    volumes: Arc<RwLock<Vec<Box<dyn Volume>>>>,
+    mounts: Arc<RwLock<Vec<Arc<dyn Mount>>>>,
+    drives: Arc<RwLock<Vec<Arc<dyn Drive>>>>,
+    volumes: Arc<RwLock<Vec<Arc<dyn Volume>>>>,
 }
 
 impl DevicesModel {
@@ -41,23 +41,26 @@ impl DevicesModel {
             c.check()?;
         }
 
-        // Load mounts
-        let mounts = self.mount_backend.get_mounts().await?;
+        // Load mounts - convert Box to Arc for efficient caching
+        let mounts_box = self.mount_backend.get_mounts().await?;
+        let mounts: Vec<Arc<dyn Mount>> = mounts_box.into_iter().map(|b| Arc::from(b)).collect();
         let mut mounts_guard = self.mounts.write().await;
         *mounts_guard = mounts;
         drop(mounts_guard);
 
         // Try to load drives and volumes from UDisks2
         if self.udisks2_backend.is_available().await {
-            // Load drives
-            if let Ok(drives) = self.udisks2_backend.get_drives(cancellable).await {
+            // Load drives - convert Box to Arc for efficient caching
+            if let Ok(drives_box) = self.udisks2_backend.get_drives(cancellable).await {
+                let drives: Vec<Arc<dyn Drive>> = drives_box.into_iter().map(|b| Arc::from(b)).collect();
                 let mut drives_guard = self.drives.write().await;
                 *drives_guard = drives;
                 drop(drives_guard);
             }
 
-            // Load volumes
-            if let Ok(volumes) = self.udisks2_backend.get_volumes(cancellable).await {
+            // Load volumes - convert Box to Arc for efficient caching
+            if let Ok(volumes_box) = self.udisks2_backend.get_volumes(cancellable).await {
+                let volumes: Vec<Arc<dyn Volume>> = volumes_box.into_iter().map(|b| Arc::from(b)).collect();
                 let mut volumes_guard = self.volumes.write().await;
                 *volumes_guard = volumes;
                 drop(volumes_guard);
@@ -68,12 +71,29 @@ impl DevicesModel {
     }
 
     /// Gets all mounts
+    /// Returns cached values if available, otherwise loads from backend
     /// Returns empty vector if an error occurs (e.g., backend unavailable)
-    pub async fn get_mounts(&self) -> Vec<Box<dyn Mount>> {
-        // Note: We can't clone Box<dyn Mount>, so we reload from backend
-        // In a real implementation, we'd maintain a cache differently
+    pub async fn get_mounts(&self) -> Vec<Arc<dyn Mount>> {
+        // Try to return cached values first
+        {
+            let mounts_guard = self.mounts.read().await;
+            if !mounts_guard.is_empty() {
+                // Clone Arc references efficiently (just increments reference count)
+                return mounts_guard.iter().map(|arc| arc.clone()).collect();
+            }
+        }
+        
+        // Cache is empty, load from backend and update cache
         match self.mount_backend.get_mounts().await {
-            Ok(mounts) => mounts,
+            Ok(mounts_box) => {
+                // Convert Box to Arc and update cache
+                let mounts: Vec<Arc<dyn Mount>> = mounts_box.into_iter().map(|b| Arc::from(b)).collect();
+                {
+                    let mut mounts_guard = self.mounts.write().await;
+                    *mounts_guard = mounts.clone();
+                }
+                mounts
+            }
             Err(e) => {
                 eprintln!("DevicesModel: Failed to get mounts: {}", e);
                 Vec::new()
@@ -82,17 +102,30 @@ impl DevicesModel {
     }
 
     /// Gets all drives
+    /// Returns cached values if available, otherwise loads from backend
     /// Returns empty vector if UDisks2 is unavailable or an error occurs
-    pub async fn get_drives(&self) -> Vec<Box<dyn Drive>> {
-        let drives_guard = self.drives.read().await;
-        // Note: We can't clone Box<dyn Drive>, so we need to reload
-        // In a real implementation, we'd maintain a cache differently
-        drop(drives_guard);
+    pub async fn get_drives(&self) -> Vec<Arc<dyn Drive>> {
+        // Try to return cached values first
+        {
+            let drives_guard = self.drives.read().await;
+            if !drives_guard.is_empty() {
+                // Clone Arc references efficiently (just increments reference count)
+                return drives_guard.iter().map(|arc| arc.clone()).collect();
+            }
+        }
         
-        // Try to get fresh drives from UDisks2
+        // Cache is empty, load from backend and update cache
         if self.udisks2_backend.is_available().await {
             match self.udisks2_backend.get_drives(None).await {
-                Ok(drives) => drives,
+                Ok(drives_box) => {
+                    // Convert Box to Arc and update cache
+                    let drives: Vec<Arc<dyn Drive>> = drives_box.into_iter().map(|b| Arc::from(b)).collect();
+                    {
+                        let mut drives_guard = self.drives.write().await;
+                        *drives_guard = drives.clone();
+                    }
+                    drives
+                }
                 Err(e) => {
                     eprintln!("DevicesModel: Failed to get drives from UDisks2: {}", e);
                     Vec::new()
@@ -104,16 +137,30 @@ impl DevicesModel {
     }
 
     /// Gets all volumes
+    /// Returns cached values if available, otherwise loads from backend
     /// Returns empty vector if UDisks2 is unavailable or an error occurs
-    pub async fn get_volumes(&self) -> Vec<Box<dyn Volume>> {
-        let volumes_guard = self.volumes.read().await;
-        // Note: We can't clone Box<dyn Volume>, so we need to reload
-        drop(volumes_guard);
+    pub async fn get_volumes(&self) -> Vec<Arc<dyn Volume>> {
+        // Try to return cached values first
+        {
+            let volumes_guard = self.volumes.read().await;
+            if !volumes_guard.is_empty() {
+                // Clone Arc references efficiently (just increments reference count)
+                return volumes_guard.iter().map(|arc| arc.clone()).collect();
+            }
+        }
         
-        // Try to get fresh volumes from UDisks2
+        // Cache is empty, load from backend and update cache
         if self.udisks2_backend.is_available().await {
             match self.udisks2_backend.get_volumes(None).await {
-                Ok(volumes) => volumes,
+                Ok(volumes_box) => {
+                    // Convert Box to Arc and update cache
+                    let volumes: Vec<Arc<dyn Volume>> = volumes_box.into_iter().map(|b| Arc::from(b)).collect();
+                    {
+                        let mut volumes_guard = self.volumes.write().await;
+                        *volumes_guard = volumes.clone();
+                    }
+                    volumes
+                }
                 Err(e) => {
                     eprintln!("DevicesModel: Failed to get volumes from UDisks2: {}", e);
                     Vec::new()
