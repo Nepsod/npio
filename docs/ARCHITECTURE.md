@@ -2,7 +2,7 @@
 
 ## Overview
 
-npio is a Rust-native library inspired by GLib's GIO, providing unified filesystem, device, and I/O abstractions for Linux. This document describes the architecture and how it parallels GIO.
+npio is a Rust-native Input-Output library inspired by GLib's GIO, providing unified filesystem, device, and I/O abstractions for Linux. This document describes the architecture and how it parallels GIO.
 
 ## Core Architecture
 
