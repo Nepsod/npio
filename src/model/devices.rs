@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::backend::mount::MountBackend;
+use crate::backend::udisks2::UDisks2Backend;
 use crate::mount::Mount;
 use crate::drive::Drive;
 use crate::volume::Volume;
@@ -16,7 +17,10 @@ use crate::cancellable::Cancellable;
 /// Devices model that aggregates drives, volumes, and mounts
 pub struct DevicesModel {
     mount_backend: Arc<MountBackend>,
+    udisks2_backend: Arc<tokio::sync::Mutex<UDisks2Backend>>,
     mounts: Arc<RwLock<Vec<Box<dyn Mount>>>>,
+    drives: Arc<RwLock<Vec<Box<dyn Drive>>>>,
+    volumes: Arc<RwLock<Vec<Box<dyn Volume>>>>,
 }
 
 impl DevicesModel {
@@ -24,7 +28,10 @@ impl DevicesModel {
     pub fn new() -> Self {
         Self {
             mount_backend: Arc::new(MountBackend::new()),
+            udisks2_backend: Arc::new(tokio::sync::Mutex::new(UDisks2Backend::new())),
             mounts: Arc::new(RwLock::new(Vec::new())),
+            drives: Arc::new(RwLock::new(Vec::new())),
+            volumes: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -34,10 +41,29 @@ impl DevicesModel {
             c.check()?;
         }
 
+        // Load mounts
         let mounts = self.mount_backend.get_mounts().await?;
         let mut mounts_guard = self.mounts.write().await;
         *mounts_guard = mounts;
         drop(mounts_guard);
+
+        // Try to load drives and volumes from UDisks2
+        let mut udisks2 = self.udisks2_backend.lock().await;
+        if udisks2.is_available().await {
+            // Load drives
+            if let Ok(drives) = udisks2.get_drives(cancellable).await {
+                let mut drives_guard = self.drives.write().await;
+                *drives_guard = drives;
+                drop(drives_guard);
+            }
+
+            // Load volumes
+            if let Ok(volumes) = udisks2.get_volumes(cancellable).await {
+                let mut volumes_guard = self.volumes.write().await;
+                *volumes_guard = volumes;
+                drop(volumes_guard);
+            }
+        }
 
         Ok(())
     }
@@ -50,17 +76,34 @@ impl DevicesModel {
     }
 
     /// Gets all drives
-    /// Note: Currently returns empty as UDisks2 integration is pending
     pub async fn get_drives(&self) -> Vec<Box<dyn Drive>> {
-        // TODO: Integrate with UDisks2 to get actual drives
-        Vec::new()
+        let drives_guard = self.drives.read().await;
+        // Note: We can't clone Box<dyn Drive>, so we need to reload
+        // In a real implementation, we'd maintain a cache differently
+        drop(drives_guard);
+        
+        // Try to get fresh drives from UDisks2
+        let mut udisks2 = self.udisks2_backend.lock().await;
+        if udisks2.is_available().await {
+            udisks2.get_drives(None).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Gets all volumes
-    /// Note: Currently returns empty as UDisks2 integration is pending
     pub async fn get_volumes(&self) -> Vec<Box<dyn Volume>> {
-        // TODO: Integrate with UDisks2 to get actual volumes
-        Vec::new()
+        let volumes_guard = self.volumes.read().await;
+        // Note: We can't clone Box<dyn Volume>, so we need to reload
+        drop(volumes_guard);
+        
+        // Try to get fresh volumes from UDisks2
+        let mut udisks2 = self.udisks2_backend.lock().await;
+        if udisks2.is_available().await {
+            udisks2.get_volumes(None).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Gets a mount for a specific path

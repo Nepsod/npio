@@ -1,6 +1,7 @@
 pub mod local;
 pub mod thumbnail;
 pub mod mount;
+pub mod udisks2;
 
 use std::collections::HashMap;
 

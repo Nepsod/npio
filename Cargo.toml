@@ -1,6 +1,6 @@
 [package]
 name = "npio"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
 description = "Nepsod Input-Output library. GIO-inspired library for Linux filesystem and device abstractions."
 edition = "2021"
@@ -19,6 +19,8 @@ bitflags = "2.4"
 directories = "5.0"
 chrono = "0.4"
 percent-encoding = "2.3"
+zbus = { version = "4.0", features = ["tokio"] }
+zvariant = "4.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
