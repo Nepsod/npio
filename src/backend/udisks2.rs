@@ -3,6 +3,7 @@
 //! Integrates with UDisks2 via D-Bus to provide drive and volume management.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use zbus::{Connection, zvariant};
 use crate::error::{NpioError, NpioResult, IOErrorEnum};
 use crate::drive::Drive;
@@ -17,73 +18,88 @@ const UDISKS2_MANAGER_PATH: &str = "/org/freedesktop/UDisks2/Manager";
 
 /// UDisks2 backend for device management
 pub struct UDisks2Backend {
-    connection: Option<Arc<Connection>>,
+    connection: Arc<Mutex<Option<Arc<Connection>>>>,
 }
-
-use std::sync::Arc;
 
 impl UDisks2Backend {
     /// Creates a new UDisks2 backend
     pub fn new() -> Self {
         Self {
-            connection: None,
+            connection: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Connects to UDisks2 D-Bus service
-    pub async fn connect(&mut self) -> NpioResult<()> {
-        if self.connection.is_none() {
-            let connection = Connection::system()
-                .await
-                .map_err(|e| NpioError::new(
-                    IOErrorEnum::Failed,
-                    format!("Failed to connect to system D-Bus: {}", e)
-                ))?;
-            self.connection = Some(Arc::new(connection));
+    /// Connects to UDisks2 D-Bus service (internal)
+    async fn ensure_connected(&self) -> NpioResult<Arc<Connection>> {
+        // Check if already connected
+        {
+            let guard = self.connection.lock().map_err(|e| {
+                eprintln!("Failed to acquire lock on UDisks2 connection: {}", e);
+                NpioError::new(IOErrorEnum::Failed, format!("Lock poisoned: {}", e))
+            })?;
+            if let Some(conn) = guard.as_ref() {
+                return Ok(conn.clone());
+            }
         }
-        Ok(())
+
+        // Need to connect
+        let connection = Connection::system()
+            .await
+            .map_err(|e| NpioError::new(
+                IOErrorEnum::Failed,
+                format!("Failed to connect to system D-Bus: {}", e)
+            ))?;
+        let connection = Arc::new(connection);
+
+        // Store the connection
+        {
+            let mut guard = self.connection.lock().map_err(|e| {
+                eprintln!("Failed to acquire lock on UDisks2 connection: {}", e);
+                NpioError::new(IOErrorEnum::Failed, format!("Lock poisoned: {}", e))
+            })?;
+            // Double-check in case another thread connected while we were connecting
+            if guard.is_none() {
+                *guard = Some(connection.clone());
+            } else {
+                return Ok(guard.as_ref().unwrap().clone());
+            }
+        }
+
+        Ok(connection)
     }
 
     /// Checks if UDisks2 is available
-    pub async fn is_available(&mut self) -> bool {
-        if self.connect().await.is_err() {
-            return false;
-        }
+    pub async fn is_available(&self) -> bool {
+        let conn = match self.ensure_connected().await {
+            Ok(conn) => conn,
+            Err(_) => return false,
+        };
 
         // Try to get manager interface
-        if let Some(conn) = &self.connection {
-            // Check if UDisks2 service is available
-            let proxy = zbus::Proxy::new(
-                conn,
-                UDISKS2_SERVICE,
-                UDISKS2_MANAGER_PATH,
-                "org.freedesktop.UDisks2.Manager",
-            ).await;
+        let proxy = zbus::Proxy::new(
+            &*conn,
+            UDISKS2_SERVICE,
+            UDISKS2_MANAGER_PATH,
+            "org.freedesktop.UDisks2.Manager",
+        ).await;
 
-            proxy.is_ok()
-        } else {
-            false
-        }
+        proxy.is_ok()
     }
 
     /// Gets all drives from UDisks2
     pub async fn get_drives(
-        &mut self,
+        &self,
         cancellable: Option<&Cancellable>,
     ) -> NpioResult<Vec<Box<dyn Drive>>> {
         if let Some(c) = cancellable {
             c.check()?;
         }
 
-        self.connect().await?;
-
-        let conn = self.connection.as_ref().ok_or_else(|| {
-            NpioError::new(IOErrorEnum::Failed, "Not connected to D-Bus")
-        })?;
+        let conn = self.ensure_connected().await?;
 
         // Get manager interface
         let manager = zbus::Proxy::new(
-            conn,
+            &*conn,
             UDISKS2_SERVICE,
             UDISKS2_MANAGER_PATH,
             "org.freedesktop.UDisks2.Manager",
@@ -138,22 +154,18 @@ impl UDisks2Backend {
 
     /// Gets all volumes (block devices with filesystems) from UDisks2
     pub async fn get_volumes(
-        &mut self,
+        &self,
         cancellable: Option<&Cancellable>,
     ) -> NpioResult<Vec<Box<dyn Volume>>> {
         if let Some(c) = cancellable {
             c.check()?;
         }
 
-        self.connect().await?;
-
-        let conn = self.connection.as_ref().ok_or_else(|| {
-            NpioError::new(IOErrorEnum::Failed, "Not connected to D-Bus")
-        })?;
+        let conn = self.ensure_connected().await?;
 
         // Get manager interface
         let manager = zbus::Proxy::new(
-            conn,
+            &*conn,
             UDISKS2_SERVICE,
             UDISKS2_MANAGER_PATH,
             "org.freedesktop.UDisks2.Manager",
@@ -244,84 +256,70 @@ impl UDisks2Drive {
             format!("Failed to create drive proxy: {}", e)
         ))?;
 
+        // Helper function to extract string property with error logging
+        async fn get_property_str(proxy: &zbus::Proxy<'_>, name: &str) -> String {
+            match proxy.get_property(name).await {
+                Ok(v) => {
+                    if let zbus::zvariant::Value::Str(s) = v {
+                        s.to_string()
+                    } else {
+                        eprintln!("UDisks2: Property '{}' has unexpected type, expected string", name);
+                        String::new()
+                    }
+                }
+                Err(e) => {
+                    eprintln!("UDisks2: Failed to get property '{}': {}", name, e);
+                    String::new()
+                }
+            }
+        }
+
+        // Helper function to extract bool property with error logging
+        async fn get_property_bool(proxy: &zbus::Proxy<'_>, name: &str) -> bool {
+            match proxy.get_property(name).await {
+                Ok(v) => {
+                    if let zbus::zvariant::Value::Bool(b) = v {
+                        b
+                    } else {
+                        eprintln!("UDisks2: Property '{}' has unexpected type, expected bool", name);
+                        false
+                    }
+                }
+                Err(e) => {
+                    eprintln!("UDisks2: Failed to get property '{}': {}", name, e);
+                    false
+                }
+            }
+        }
+
+        // Helper function to extract optional string property with error logging
+        async fn get_property_str_opt(proxy: &zbus::Proxy<'_>, name: &str) -> Option<String> {
+            match proxy.get_property(name).await {
+                Ok(v) => {
+                    if let zbus::zvariant::Value::Str(s) = v {
+                        Some(s.to_string())
+                    } else {
+                        eprintln!("UDisks2: Property '{}' has unexpected type, expected string", name);
+                        None
+                    }
+                }
+                Err(e) => {
+                    eprintln!("UDisks2: Failed to get property '{}': {}", name, e);
+                    None
+                }
+            }
+        }
+
         // Get drive properties
-        // Note: get_property returns Value, we need to extract the actual type
-        let vendor: String = proxy.get_property("Vendor")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| String::new());
-        let model: String = proxy.get_property("Model")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| String::new());
-        let is_removable: bool = proxy.get_property("MediaRemovable")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Bool(b) = v {
-                    Some(b)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false);
-        let is_media_removable: bool = proxy.get_property("MediaRemovable")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Bool(b) = v {
-                    Some(b)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false);
-        let has_media: bool = proxy.get_property("MediaAvailable")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Bool(b) = v {
-                    Some(b)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false);
-        let can_eject: bool = proxy.get_property("Ejectable")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Bool(b) = v {
-                    Some(b)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false);
-        let device: Option<String> = proxy.get_property("Device")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            });
+        let vendor = get_property_str(&proxy, "Vendor").await;
+        let model = get_property_str(&proxy, "Model").await;
+        // Removable: whether the drive itself can be removed (e.g., USB stick)
+        let is_removable = get_property_bool(&proxy, "Removable").await;
+        // MediaRemovable: whether the media inside can be removed (e.g., CD in CD drive)
+        let is_media_removable = get_property_bool(&proxy, "MediaRemovable").await;
+        let has_media = get_property_bool(&proxy, "MediaAvailable").await;
+        let can_eject = get_property_bool(&proxy, "Ejectable").await;
+        let device = get_property_str_opt(&proxy, "Device").await;
 
         let name = if !vendor.is_empty() && !model.is_empty() {
             format!("{} {}", vendor, model)
@@ -515,43 +513,32 @@ impl UDisks2Volume {
             format!("Failed to create filesystem proxy: {}", e)
         ))?;
 
+        // Helper function to extract optional string property with error logging
+        async fn get_property_str_opt(proxy: &zbus::Proxy<'_>, name: &str) -> Option<String> {
+            match proxy.get_property(name).await {
+                Ok(v) => {
+                    if let zbus::zvariant::Value::Str(s) = v {
+                        Some(s.to_string())
+                    } else {
+                        eprintln!("UDisks2: Property '{}' has unexpected type, expected string", name);
+                        None
+                    }
+                }
+                Err(e) => {
+                    eprintln!("UDisks2: Failed to get property '{}': {}", name, e);
+                    None
+                }
+            }
+        }
+
         // Get properties
-        let label: Option<String> = block_proxy.get_property("IdLabel")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            });
-        let uuid: Option<String> = block_proxy.get_property("IdUuid")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            });
-        let device: Option<String> = block_proxy.get_property("Device")
-            .await
-            .ok()
-            .and_then(|v| {
-                if let zbus::zvariant::Value::Str(s) = v {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            });
+        let label = get_property_str_opt(&block_proxy, "IdLabel").await;
+        let uuid = get_property_str_opt(&block_proxy, "IdUuid").await;
+        let device = get_property_str_opt(&block_proxy, "Device").await;
 
         // Get mount points (array of byte arrays)
-        let mount_points: Vec<Vec<u8>> = fs_proxy.get_property("MountPoints")
-            .await
-            .ok()
-            .and_then(|v| {
+        let mount_points: Vec<Vec<u8>> = match fs_proxy.get_property("MountPoints").await {
+            Ok(v) => {
                 if let zbus::zvariant::Value::Array(arr) = v {
                     let mut result = Vec::new();
                     for item in arr.iter() {
@@ -565,12 +552,17 @@ impl UDisks2Volume {
                             }).collect());
                         }
                     }
-                    Some(result)
+                    result
                 } else {
-                    None
+                    eprintln!("UDisks2: Property 'MountPoints' has unexpected type, expected array");
+                    Vec::new()
                 }
-            })
-            .unwrap_or_default();
+            }
+            Err(e) => {
+                eprintln!("UDisks2: Failed to get property 'MountPoints': {}", e);
+                Vec::new()
+            }
+        };
 
         let mount_point = mount_points.first()
             .and_then(|mp| String::from_utf8(mp.clone()).ok());

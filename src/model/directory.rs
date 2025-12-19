@@ -31,7 +31,15 @@ impl DirectoryModel {
     }
 
     pub fn files(&self) -> Vec<FileInfo> {
-        self.files.read().unwrap().clone()
+        match self.files.read() {
+            Ok(guard) => guard.clone(),
+            Err(e) => {
+                eprintln!("Failed to acquire read lock on directory files: {}", e);
+                // Try to recover from poisoned lock
+                let guard = e.into_inner();
+                guard.clone()
+            }
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<DirectoryUpdate> {
@@ -54,8 +62,17 @@ impl DirectoryModel {
 
         // Update state
         {
-            let mut files = self.files.write().unwrap();
-            *files = initial_files.clone();
+            match self.files.write() {
+                Ok(mut files) => {
+                    *files = initial_files.clone();
+                }
+                Err(e) => {
+                    eprintln!("Failed to acquire write lock on directory files: {}", e);
+                    // Try to recover from poisoned lock
+                    let mut files = e.into_inner();
+                    *files = initial_files.clone();
+                }
+            }
         }
 
         // Notify initial
@@ -77,8 +94,17 @@ impl DirectoryModel {
                         // Query info for new file
                         if let Ok(info) = child.query_info("standard::*,time::modified", None).await {
                             {
-                                let mut files = files_clone.write().unwrap();
-                                files.push(info.clone());
+                                match files_clone.write() {
+                                    Ok(mut files) => {
+                                        files.push(info.clone());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to acquire write lock on directory files: {}", e);
+                                        // Try to recover from poisoned lock
+                                        let mut files = e.into_inner();
+                                        files.push(info.clone());
+                                    }
+                                }
                             }
                             let _ = tx_clone.send(DirectoryUpdate::Added(info));
                         }
@@ -87,9 +113,20 @@ impl DirectoryModel {
                         let basename = child.basename();
                         let mut removed_info = None;
                         {
-                            let mut files = files_clone.write().unwrap();
-                            if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
-                                removed_info = Some(files.remove(pos));
+                            match files_clone.write() {
+                                Ok(mut files) => {
+                                    if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
+                                        removed_info = Some(files.remove(pos));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to acquire write lock on directory files: {}", e);
+                                    // Try to recover from poisoned lock
+                                    let mut files = e.into_inner();
+                                    if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
+                                        removed_info = Some(files.remove(pos));
+                                    }
+                                }
                             }
                         }
                         if let Some(info) = removed_info {
@@ -100,9 +137,20 @@ impl DirectoryModel {
                         if let Ok(info) = child.query_info("standard::*,time::modified", None).await {
                              let basename = child.basename();
                              {
-                                let mut files = files_clone.write().unwrap();
-                                if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
-                                    files[pos] = info.clone();
+                                match files_clone.write() {
+                                    Ok(mut files) => {
+                                        if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
+                                            files[pos] = info.clone();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to acquire write lock on directory files: {}", e);
+                                        // Try to recover from poisoned lock
+                                        let mut files = e.into_inner();
+                                        if let Some(pos) = files.iter().position(|f| f.get_name() == Some(&basename)) {
+                                            files[pos] = info.clone();
+                                        }
+                                    }
                                 }
                             }
                             let _ = tx_clone.send(DirectoryUpdate::Changed(info));

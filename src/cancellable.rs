@@ -25,15 +25,35 @@ impl Cancellable {
     }
 
     pub fn cancel(&self) {
-        let mut cancelled = self.inner.cancelled.lock().unwrap();
-        if !*cancelled {
-            *cancelled = true;
-            self.inner.notify.notify_waiters();
+        match self.inner.cancelled.lock() {
+            Ok(mut cancelled) => {
+                if !*cancelled {
+                    *cancelled = true;
+                    self.inner.notify.notify_waiters();
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to acquire lock on cancellable state: {}", e);
+                // Try to recover from poisoned lock
+                let mut cancelled = e.into_inner();
+                if !*cancelled {
+                    *cancelled = true;
+                    self.inner.notify.notify_waiters();
+                }
+            }
         }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        *self.inner.cancelled.lock().unwrap()
+        match self.inner.cancelled.lock() {
+            Ok(cancelled) => *cancelled,
+            Err(e) => {
+                eprintln!("Failed to acquire lock on cancellable state: {}", e);
+                // Try to recover from poisoned lock
+                let cancelled = e.into_inner();
+                *cancelled
+            }
+        }
     }
 
     pub fn check(&self) -> Result<(), NpioError> {

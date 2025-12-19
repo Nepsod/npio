@@ -17,7 +17,7 @@ use crate::cancellable::Cancellable;
 /// Devices model that aggregates drives, volumes, and mounts
 pub struct DevicesModel {
     mount_backend: Arc<MountBackend>,
-    udisks2_backend: Arc<tokio::sync::Mutex<UDisks2Backend>>,
+    udisks2_backend: Arc<UDisks2Backend>,
     mounts: Arc<RwLock<Vec<Box<dyn Mount>>>>,
     drives: Arc<RwLock<Vec<Box<dyn Drive>>>>,
     volumes: Arc<RwLock<Vec<Box<dyn Volume>>>>,
@@ -28,7 +28,7 @@ impl DevicesModel {
     pub fn new() -> Self {
         Self {
             mount_backend: Arc::new(MountBackend::new()),
-            udisks2_backend: Arc::new(tokio::sync::Mutex::new(UDisks2Backend::new())),
+            udisks2_backend: Arc::new(UDisks2Backend::new()),
             mounts: Arc::new(RwLock::new(Vec::new())),
             drives: Arc::new(RwLock::new(Vec::new())),
             volumes: Arc::new(RwLock::new(Vec::new())),
@@ -48,17 +48,16 @@ impl DevicesModel {
         drop(mounts_guard);
 
         // Try to load drives and volumes from UDisks2
-        let mut udisks2 = self.udisks2_backend.lock().await;
-        if udisks2.is_available().await {
+        if self.udisks2_backend.is_available().await {
             // Load drives
-            if let Ok(drives) = udisks2.get_drives(cancellable).await {
+            if let Ok(drives) = self.udisks2_backend.get_drives(cancellable).await {
                 let mut drives_guard = self.drives.write().await;
                 *drives_guard = drives;
                 drop(drives_guard);
             }
 
             // Load volumes
-            if let Ok(volumes) = udisks2.get_volumes(cancellable).await {
+            if let Ok(volumes) = self.udisks2_backend.get_volumes(cancellable).await {
                 let mut volumes_guard = self.volumes.write().await;
                 *volumes_guard = volumes;
                 drop(volumes_guard);
@@ -69,13 +68,21 @@ impl DevicesModel {
     }
 
     /// Gets all mounts
+    /// Returns empty vector if an error occurs (e.g., backend unavailable)
     pub async fn get_mounts(&self) -> Vec<Box<dyn Mount>> {
         // Note: We can't clone Box<dyn Mount>, so we reload from backend
         // In a real implementation, we'd maintain a cache differently
-        self.mount_backend.get_mounts().await.unwrap_or_default()
+        match self.mount_backend.get_mounts().await {
+            Ok(mounts) => mounts,
+            Err(e) => {
+                eprintln!("DevicesModel: Failed to get mounts: {}", e);
+                Vec::new()
+            }
+        }
     }
 
     /// Gets all drives
+    /// Returns empty vector if UDisks2 is unavailable or an error occurs
     pub async fn get_drives(&self) -> Vec<Box<dyn Drive>> {
         let drives_guard = self.drives.read().await;
         // Note: We can't clone Box<dyn Drive>, so we need to reload
@@ -83,24 +90,35 @@ impl DevicesModel {
         drop(drives_guard);
         
         // Try to get fresh drives from UDisks2
-        let mut udisks2 = self.udisks2_backend.lock().await;
-        if udisks2.is_available().await {
-            udisks2.get_drives(None).await.unwrap_or_default()
+        if self.udisks2_backend.is_available().await {
+            match self.udisks2_backend.get_drives(None).await {
+                Ok(drives) => drives,
+                Err(e) => {
+                    eprintln!("DevicesModel: Failed to get drives from UDisks2: {}", e);
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         }
     }
 
     /// Gets all volumes
+    /// Returns empty vector if UDisks2 is unavailable or an error occurs
     pub async fn get_volumes(&self) -> Vec<Box<dyn Volume>> {
         let volumes_guard = self.volumes.read().await;
         // Note: We can't clone Box<dyn Volume>, so we need to reload
         drop(volumes_guard);
         
         // Try to get fresh volumes from UDisks2
-        let mut udisks2 = self.udisks2_backend.lock().await;
-        if udisks2.is_available().await {
-            udisks2.get_volumes(None).await.unwrap_or_default()
+        if self.udisks2_backend.is_available().await {
+            match self.udisks2_backend.get_volumes(None).await {
+                Ok(volumes) => volumes,
+                Err(e) => {
+                    eprintln!("DevicesModel: Failed to get volumes from UDisks2: {}", e);
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         }

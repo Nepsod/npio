@@ -49,13 +49,29 @@ static REGISTRY: Lazy<RwLock<BackendRegistry>> = Lazy::new(|| {
 });
 
 pub fn register_backend(backend: Arc<dyn Backend>) {
-    let mut registry = REGISTRY.write().unwrap();
-    registry.register(backend);
+    match REGISTRY.write() {
+        Ok(mut registry) => {
+            registry.register(backend);
+        }
+        Err(e) => {
+            eprintln!("Failed to acquire write lock on backend registry: {}", e);
+            // Try to recover from poisoned lock
+            let mut registry = e.into_inner();
+            registry.register(backend);
+        }
+    }
 }
 
 pub fn get_backend_for_scheme(scheme: &str) -> Option<Arc<dyn Backend>> {
-    let registry = REGISTRY.read().unwrap();
-    registry.get_backend(scheme)
+    match REGISTRY.read() {
+        Ok(registry) => registry.get_backend(scheme),
+        Err(e) => {
+            eprintln!("Failed to acquire read lock on backend registry: {}", e);
+            // Try to recover from poisoned lock
+            let registry = e.into_inner();
+            registry.get_backend(scheme)
+        }
+    }
 }
 
 pub fn get_file_for_uri(uri: &str) -> NpioResult<Box<dyn File>> {
