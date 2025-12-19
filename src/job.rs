@@ -1,3 +1,11 @@
+//! Async job operations
+//!
+//! Provides high-level async operations for file manipulation:
+//! - Copy: Copy files with progress reporting
+//! - Move: Move/rename files
+//! - Delete: Delete files
+//! - Trash: Move files to trash (freedesktop.org spec)
+
 use bitflags::bitflags;
 
 bitflags! {

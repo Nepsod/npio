@@ -1,3 +1,8 @@
+//! File abstraction trait
+//!
+//! The `File` trait provides a unified interface for file operations across different backends.
+//! It mirrors GIO's GFile interface, providing async methods for common file operations.
+
 pub mod local;
 
 use async_trait::async_trait;

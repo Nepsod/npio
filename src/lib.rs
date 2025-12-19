@@ -1,3 +1,50 @@
+//! # npio - Nepsod Input-Output
+//!
+//! A Rust-native library inspired by GIO, focused on Linux. Provides unified filesystem,
+//! device, and I/O abstractions.
+//!
+//! ## Overview
+//!
+//! npio provides a GIO-inspired API for filesystem operations, device management, and I/O
+//! operations in Rust. It's designed to be async-first using Tokio and follows the same
+//! architectural patterns as GLib's GIO library.
+//!
+//! ## Core Concepts
+//!
+//! - **File**: URI-based file handles that abstract over different backends
+//! - **FileInfo**: Metadata bag with attribute system (standard::*, time::*, etc.)
+//! - **Backend**: Pluggable backends for different URI schemes (file://, etc.)
+//! - **Services**: High-level services like Places and Bookmarks
+//! - **Jobs**: Async operations like copy, move, delete, trash with progress reporting
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use npio::{get_file_for_uri, register_backend};
+//! use npio::backend::local::LocalBackend;
+//! use std::sync::Arc;
+//!
+//! # async fn example() -> npio::NpioResult<()> {
+//! // Register local filesystem backend
+//! let backend = Arc::new(LocalBackend::new());
+//! register_backend(backend);
+//!
+//! // Get a file handle
+//! let file = get_file_for_uri("file:///home/user/document.txt")?;
+//!
+//! // Query file information
+//! let info = file.query_info("standard::*,time::modified", None).await?;
+//! println!("File: {}", info.get_name().unwrap_or("unknown"));
+//! println!("Size: {} bytes", info.get_size());
+//!
+//! // Read file contents
+//! let mut input = file.read(None).await?;
+//! let mut contents = Vec::new();
+//! tokio::io::AsyncReadExt::read_to_end(&mut input, &mut contents).await?;
+//! # Ok(())
+//! # }
+//! ```
+
 pub mod backend;
 pub mod cancellable;
 pub mod drive;
@@ -29,4 +76,6 @@ pub use mount::Mount;
 pub use job::{CopyFlags, ProgressCallback, trash};
 pub use service::places::{PlacesService, Place};
 pub use service::bookmarks::{BookmarksService, Bookmark};
+pub use service::thumbnail::ThumbnailService;
+pub use backend::thumbnail::{ThumbnailBackend, ThumbnailSize};
 pub use volume::Volume;

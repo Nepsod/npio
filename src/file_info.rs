@@ -132,6 +132,71 @@ impl FileInfo {
     pub fn set_modification_time(&mut self, time: u64) {
         self.set_attribute("time::modified", FileAttributeType::Uint64(time));
     }
+
+    // Thumbnail attributes (freedesktop.org spec)
+    
+    pub fn set_thumbnail_path(&mut self, path: &str, size: Option<&str>) {
+        let key = if let Some(s) = size {
+            format!("thumbnail::path-{}", s)
+        } else {
+            "thumbnail::path".to_string()
+        };
+        self.set_attribute(&key, FileAttributeType::ByteString(path.as_bytes().to_vec()));
+    }
+
+    pub fn get_thumbnail_path(&self, size: Option<&str>) -> Option<Vec<u8>> {
+        let key = if let Some(s) = size {
+            format!("thumbnail::path-{}", s)
+        } else {
+            "thumbnail::path".to_string()
+        };
+        match self.get_attribute(&key) {
+            Some(FileAttributeType::ByteString(bytes)) => Some(bytes.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn set_thumbnail_is_valid(&mut self, is_valid: bool, size: Option<&str>) {
+        let key = if let Some(s) = size {
+            format!("thumbnail::is-valid-{}", s)
+        } else {
+            "thumbnail::is-valid".to_string()
+        };
+        self.set_attribute(&key, FileAttributeType::Boolean(is_valid));
+    }
+
+    pub fn get_thumbnail_is_valid(&self, size: Option<&str>) -> bool {
+        let key = if let Some(s) = size {
+            format!("thumbnail::is-valid-{}", s)
+        } else {
+            "thumbnail::is-valid".to_string()
+        };
+        match self.get_attribute(&key) {
+            Some(FileAttributeType::Boolean(val)) => *val,
+            _ => false,
+        }
+    }
+
+    pub fn set_thumbnailing_failed(&mut self, failed: bool, size: Option<&str>) {
+        let key = if let Some(s) = size {
+            format!("thumbnail::failed-{}", s)
+        } else {
+            "thumbnail::failed".to_string()
+        };
+        self.set_attribute(&key, FileAttributeType::Boolean(failed));
+    }
+
+    pub fn get_thumbnailing_failed(&self, size: Option<&str>) -> bool {
+        let key = if let Some(s) = size {
+            format!("thumbnail::failed-{}", s)
+        } else {
+            "thumbnail::failed".to_string()
+        };
+        match self.get_attribute(&key) {
+            Some(FileAttributeType::Boolean(val)) => *val,
+            _ => false,
+        }
+    }
 }
 
 impl Default for FileInfo {

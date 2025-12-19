@@ -1,4 +1,5 @@
 pub mod local;
+pub mod thumbnail;
 
 use std::collections::HashMap;
 
