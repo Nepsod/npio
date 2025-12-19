@@ -20,7 +20,13 @@ directories = "5.0"
 chrono = "0.4"
 percent-encoding = "2.3"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
 
 [lib]
 name = "npio"
 path = "src/lib.rs"
+
+[[bench]]
+name = "job_bench"
+harness = false
