@@ -8,3 +8,4 @@
 pub mod places;
 pub mod bookmarks;
 pub mod thumbnail;
+pub mod volumemonitor;

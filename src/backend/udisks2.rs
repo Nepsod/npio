@@ -214,6 +214,88 @@ impl UDisks2Backend {
 
         Ok(result)
     }
+
+    /// Mounts a volume via UDisks2
+    pub async fn mount_volume(
+        &self,
+        volume_path: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let conn = self.ensure_connected().await?;
+        let volume = UDisks2Volume::new(conn, volume_path).await?;
+        volume.mount(cancellable).await
+    }
+
+    /// Unmounts a mount via UDisks2
+    pub async fn unmount_mount(
+        &self,
+        mount_path: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let _conn = self.ensure_connected().await?;
+        
+        // Find the volume by mount point
+        let volumes = self.get_volumes(cancellable).await?;
+        for volume in volumes {
+            // Check if this volume has the mount point
+            if let Some(mount) = volume.get_mount() {
+                let root = mount.get_root();
+                let uri = root.uri();
+                if uri.strip_prefix("file://").unwrap_or("") == mount_path {
+                    return mount.unmount(cancellable).await;
+                }
+            }
+        }
+
+        Err(NpioError::new(
+            IOErrorEnum::NotFound,
+            format!("Mount not found: {}", mount_path),
+        ))
+    }
+
+    /// Ejects a volume via UDisks2
+    pub async fn eject_volume(
+        &self,
+        volume_path: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let conn = self.ensure_connected().await?;
+        let volume = UDisks2Volume::new(conn, volume_path).await?;
+        volume.eject(cancellable).await
+    }
+
+    /// Gets mounts from UDisks2 volumes
+    pub async fn get_mounts(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<Vec<Box<dyn Mount>>> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let volumes = self.get_volumes(cancellable).await?;
+        let mut mounts = Vec::new();
+
+        for volume in volumes {
+            if let Some(mount) = volume.get_mount() {
+                mounts.push(mount);
+            }
+        }
+
+        Ok(mounts)
+    }
 }
 
 impl Default for UDisks2Backend {
@@ -470,6 +552,170 @@ impl Drive for UDisks2Drive {
     }
 }
 
+/// UDisks2 Mount implementation
+#[derive(Debug)]
+struct UDisks2Mount {
+    connection: Arc<Connection>,
+    path: String,
+    mount_point: Option<String>,
+    volume_path: String,
+}
+
+impl UDisks2Mount {
+    async fn new(connection: Arc<Connection>, volume_path: &str) -> NpioResult<Self> {
+        // Get the volume to find mount point
+        let volume = UDisks2Volume::new(connection.clone(), volume_path).await?;
+        
+        Ok(Self {
+            connection,
+            path: volume_path.to_string(),
+            mount_point: volume.mount_point.clone(),
+            volume_path: volume_path.to_string(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Mount for UDisks2Mount {
+    fn get_root(&self) -> Box<dyn crate::file::File> {
+        use crate::file::local::LocalFile;
+        use std::path::PathBuf;
+        
+        if let Some(ref mp) = self.mount_point {
+            Box::new(LocalFile::new(PathBuf::from(mp)))
+        } else {
+            // Return root if not mounted
+            Box::new(LocalFile::new(PathBuf::from("/")))
+        }
+    }
+
+    fn get_name(&self) -> String {
+        self.mount_point
+            .as_ref()
+            .and_then(|mp| std::path::Path::new(mp).file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Unknown Mount".to_string())
+    }
+
+    fn get_icon(&self) -> String {
+        "drive-harddisk".to_string()
+    }
+
+    fn get_uuid(&self) -> Option<String> {
+        // UUID would need to be retrieved from volume
+        None
+    }
+
+    fn get_volume(&self) -> Option<Box<dyn Volume>> {
+        // Return None for now - would need to reconstruct volume
+        None
+    }
+
+    fn get_drive(&self) -> Option<Box<dyn Drive>> {
+        None
+    }
+
+    fn can_unmount(&self) -> bool {
+        self.mount_point.is_some()
+    }
+
+    fn can_eject(&self) -> bool {
+        false // Would need to check volume properties
+    }
+
+    async fn unmount(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        if self.mount_point.is_none() {
+            return Err(NpioError::new(
+                IOErrorEnum::NotSupported,
+                "Mount is not mounted",
+            ));
+        }
+
+        let path_obj = zbus::zvariant::ObjectPath::try_from(self.path.as_str())
+            .map_err(|e| NpioError::new(
+                IOErrorEnum::Failed,
+                format!("Invalid object path: {}", e)
+            ))?;
+        let proxy = zbus::Proxy::new(
+            &*self.connection,
+            UDISKS2_SERVICE,
+            path_obj,
+            "org.freedesktop.UDisks2.Filesystem",
+        )
+        .await
+        .map_err(|e| NpioError::new(
+            IOErrorEnum::Failed,
+            format!("Failed to create filesystem proxy: {}", e)
+        ))?;
+
+        let mut options = HashMap::<String, zvariant::Value>::new();
+        options.insert("force".to_string(), false.into());
+
+        proxy
+            .call_method("Unmount", &(options))
+            .await
+            .map_err(|e| NpioError::new(
+                IOErrorEnum::Failed,
+                format!("Failed to unmount: {}", e)
+            ))?;
+
+        Ok(())
+    }
+
+    async fn eject(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        // First unmount if mounted
+        if self.mount_point.is_some() {
+            self.unmount(cancellable).await?;
+        }
+
+        // Get the drive and eject it
+        // This requires finding the drive associated with this volume
+        // For now, return not supported
+        Err(NpioError::new(
+            IOErrorEnum::NotSupported,
+            "Eject requires drive lookup",
+        ))
+    }
+
+    async fn remount(
+        &self,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        if self.mount_point.is_none() {
+            return Err(NpioError::new(
+                IOErrorEnum::NotSupported,
+                "Mount is not mounted",
+            ));
+        }
+
+        // UDisks2 doesn't have a direct remount method
+        // We would need to unmount and remount
+        // For now, return not supported
+        Err(NpioError::new(
+            IOErrorEnum::NotSupported,
+            "Remount not yet implemented",
+        ))
+    }
+}
+
 /// UDisks2 Volume implementation
 #[derive(Debug)]
 struct UDisks2Volume {
@@ -632,8 +878,16 @@ impl Volume for UDisks2Volume {
     }
 
     fn get_mount(&self) -> Option<Box<dyn Mount>> {
-        // TODO: Get mount for this volume
-        None
+        if self.mount_point.is_some() {
+            Some(Box::new(UDisks2Mount {
+                connection: self.connection.clone(),
+                path: self.path.clone(),
+                mount_point: self.mount_point.clone(),
+                volume_path: self.path.clone(),
+            }))
+        } else {
+            None
+        }
     }
 
     fn can_mount(&self) -> bool {

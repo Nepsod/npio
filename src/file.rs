@@ -6,10 +6,19 @@
 pub mod local;
 
 use async_trait::async_trait;
+use bitflags::bitflags;
 use crate::cancellable::Cancellable;
 use crate::error::NpioResult;
-use crate::file_info::FileInfo;
+use crate::file_info::{FileInfo, FileAttributeType};
 use crate::iostream::{InputStream, OutputStream};
+
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct FileQueryInfoFlags: u32 {
+        const NONE = 0;
+        const NOFOLLOW_SYMLINKS = 1;
+    }
+}
 
 #[async_trait]
 pub trait File: Send + Sync + std::fmt::Debug {
@@ -94,4 +103,91 @@ pub trait File: Send + Sync + std::fmt::Debug {
 
     /// Moves the file to the trash.
     async fn trash(&self, cancellable: Option<&Cancellable>) -> NpioResult<()>;
+
+    /// Queries filesystem-level information (free space, type, etc.)
+    async fn query_filesystem_info(
+        &self,
+        attributes: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<FileInfo>;
+
+    /// Sets file attributes from a FileInfo object
+    async fn set_attributes_from_info(
+        &self,
+        info: &FileInfo,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<FileInfo>;
+
+    /// Sets a single file attribute
+    async fn set_attribute(
+        &self,
+        attribute: &str,
+        value: &FileAttributeType,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets a string attribute
+    async fn set_attribute_string(
+        &self,
+        attribute: &str,
+        value: &str,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets a byte string attribute
+    async fn set_attribute_byte_string(
+        &self,
+        attribute: &str,
+        value: &str,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets a boolean attribute
+    async fn set_attribute_boolean(
+        &self,
+        attribute: &str,
+        value: bool,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets a uint32 attribute
+    async fn set_attribute_uint32(
+        &self,
+        attribute: &str,
+        value: u32,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets an int32 attribute
+    async fn set_attribute_int32(
+        &self,
+        attribute: &str,
+        value: i32,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets a uint64 attribute
+    async fn set_attribute_uint64(
+        &self,
+        attribute: &str,
+        value: u64,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
+
+    /// Sets an int64 attribute
+    async fn set_attribute_int64(
+        &self,
+        attribute: &str,
+        value: i64,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()>;
 }

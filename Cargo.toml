@@ -26,6 +26,8 @@ md5 = "0.7"
 thumbnailify = "0.1.4"
 urlencoding = "2.1"
 image = "0.24"
+udev = "0.5"
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

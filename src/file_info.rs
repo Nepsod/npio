@@ -54,6 +54,11 @@ impl FileInfo {
         self.attributes.remove(key);
     }
 
+    /// Get all attributes as an iterator
+    pub fn get_all_attributes(&self) -> impl Iterator<Item = (&String, &FileAttributeType)> {
+        self.attributes.iter()
+    }
+
     // Common attributes helpers
     
     pub fn set_name(&mut self, name: &str) {

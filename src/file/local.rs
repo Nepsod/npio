@@ -1,13 +1,16 @@
 use std::path::PathBuf;
+use std::os::unix::fs::{PermissionsExt, MetadataExt};
+use std::os::unix::ffi::OsStrExt;
 use async_trait::async_trait;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use libc;
 
 use crate::cancellable::Cancellable;
 use crate::error::{NpioError, NpioResult, IOErrorEnum};
-use crate::file::File;
+use crate::file::{File, FileQueryInfoFlags};
 use crate::file_enumerator::FileEnumerator;
-use crate::file_info::{FileInfo, FileType};
+use crate::file_info::{FileInfo, FileType, FileAttributeType};
 use crate::iostream::{InputStream, OutputStream};
 
 impl InputStream for fs::File {
@@ -498,7 +501,454 @@ impl File for LocalFile {
 
         Ok(())
     }
+
+    async fn query_filesystem_info(
+        &self,
+        attributes: &str,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<FileInfo> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let path = self.path.clone();
+        let attrs = attributes.to_string();
+        let result = tokio::task::spawn_blocking(move || {
+            let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?;
+            
+            let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+            let ret = unsafe {
+                libc::statvfs(c_path.as_ptr(), &mut stat)
+            };
+            
+            if ret != 0 {
+                return Err(NpioError::new(
+                    IOErrorEnum::Failed,
+                    format!("statvfs failed: {}", std::io::Error::last_os_error())
+                ));
+            }
+
+            let mut info = FileInfo::new();
+            
+            // Calculate filesystem info
+            let block_size = stat.f_frsize as u64;
+            let total_blocks = stat.f_blocks as u64;
+            let free_blocks = stat.f_bavail as u64; // Available to non-root
+            let used_blocks = total_blocks - stat.f_bfree as u64;
+            
+            let total_size = total_blocks * block_size;
+            let free_size = free_blocks * block_size;
+            let used_size = used_blocks * block_size;
+            
+            if attrs.contains("filesystem::size") || attrs.contains("filesystem::*") {
+                info.set_attribute("filesystem::size", FileAttributeType::Uint64(total_size));
+            }
+            
+            if attrs.contains("filesystem::free") || attrs.contains("filesystem::*") {
+                info.set_attribute("filesystem::free", FileAttributeType::Uint64(free_size));
+            }
+            
+            if attrs.contains("filesystem::used") || attrs.contains("filesystem::*") {
+                info.set_attribute("filesystem::used", FileAttributeType::Uint64(used_size));
+            }
+            
+            if attrs.contains("filesystem::readonly") || attrs.contains("filesystem::*") {
+                let readonly = (stat.f_flag & libc::ST_RDONLY) != 0;
+                info.set_attribute("filesystem::readonly", FileAttributeType::Boolean(readonly));
+            }
+            
+            // Get filesystem type from /proc/mounts or statfs
+            // For now, we'll use a simplified approach
+            if attrs.contains("filesystem::type") || attrs.contains("filesystem::*") {
+                // Try to get filesystem type from /proc/mounts
+                let fs_type = get_filesystem_type(&path).unwrap_or_else(|| "unknown".to_string());
+                info.set_attribute("filesystem::type", FileAttributeType::String(fs_type));
+            }
+            
+            Ok(info)
+        }).await
+        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Join error: {}", e)))??;
+        
+        Ok(result)
+    }
+
+    async fn set_attributes_from_info(
+        &self,
+        info: &FileInfo,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<FileInfo> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let path = self.path.clone();
+        let info_clone = info.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            set_attributes_from_info_sync(&path, &info_clone, flags)
+        }).await
+        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Join error: {}", e)))??;
+        
+        // Return updated file info
+        self.query_info("standard::*,unix::*,time::*", cancellable).await
+    }
+
+    async fn set_attribute(
+        &self,
+        attribute: &str,
+        value: &FileAttributeType,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        if let Some(c) = cancellable {
+            c.check()?;
+        }
+
+        let path = self.path.clone();
+        let attr = attribute.to_string();
+        let val = value.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            set_attribute_sync(&path, &attr, &val, flags)
+        }).await
+        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Join error: {}", e)))??;
+        
+        Ok(())
+    }
+
+    async fn set_attribute_string(
+        &self,
+        attribute: &str,
+        value: &str,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::String(value.to_string()), flags, cancellable).await
+    }
+
+    async fn set_attribute_byte_string(
+        &self,
+        attribute: &str,
+        value: &str,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::ByteString(value.as_bytes().to_vec()), flags, cancellable).await
+    }
+
+    async fn set_attribute_boolean(
+        &self,
+        attribute: &str,
+        value: bool,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::Boolean(value), flags, cancellable).await
+    }
+
+    async fn set_attribute_uint32(
+        &self,
+        attribute: &str,
+        value: u32,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::Uint32(value), flags, cancellable).await
+    }
+
+    async fn set_attribute_int32(
+        &self,
+        attribute: &str,
+        value: i32,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::Int32(value), flags, cancellable).await
+    }
+
+    async fn set_attribute_uint64(
+        &self,
+        attribute: &str,
+        value: u64,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::Uint64(value), flags, cancellable).await
+    }
+
+    async fn set_attribute_int64(
+        &self,
+        attribute: &str,
+        value: i64,
+        flags: FileQueryInfoFlags,
+        cancellable: Option<&Cancellable>,
+    ) -> NpioResult<()> {
+        self.set_attribute(attribute, &FileAttributeType::Int64(value), flags, cancellable).await
+    }
 }
+
+// Helper function to get filesystem type
+fn get_filesystem_type(path: &PathBuf) -> Option<String> {
+    use std::fs;
+    use std::io::{BufRead, BufReader};
+    
+    // Read /proc/mounts to find the filesystem type
+    let mounts_file = fs::File::open("/proc/mounts").ok()?;
+    let reader = BufReader::new(mounts_file);
+    
+    // Try to canonicalize the path to get the mount point
+    // If canonicalization fails, use the original path
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+    
+    // Find the longest matching mount point (most specific)
+    let mut best_match: Option<(usize, String)> = None;
+    
+    for line in reader.lines() {
+        let line = line.ok()?;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let mount_point_str = parts[1];
+            let mount_point = PathBuf::from(mount_point_str);
+            // Check if this path is under this mount point
+            if canonical.starts_with(&mount_point) {
+                let mount_len = mount_point.components().count();
+                // Keep the longest (most specific) match
+                let should_update = match &best_match {
+                    Some((len, _)) => mount_len > *len,
+                    None => true,
+                };
+                if should_update {
+                    best_match = Some((mount_len, parts[2].to_string()));
+                }
+            }
+        }
+    }
+    
+    best_match.map(|(_, fs_type)| fs_type)
+}
+
+// Synchronous helper to set attributes from FileInfo
+fn set_attributes_from_info_sync(
+    path: &PathBuf,
+    info: &FileInfo,
+    _flags: FileQueryInfoFlags,
+) -> NpioResult<()> {
+    // Process each attribute
+    for (key, value) in info.get_all_attributes() {
+        set_attribute_sync(path, key, value, _flags)?;
+    }
+    
+    Ok(())
+}
+
+// Synchronous helper to set a single attribute
+fn set_attribute_sync(
+    path: &PathBuf,
+    attribute: &str,
+    value: &FileAttributeType,
+    _flags: FileQueryInfoFlags,
+) -> NpioResult<()> {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH, Duration};
+    
+    match attribute {
+        // Unix mode (permissions)
+        "unix::mode" => {
+            if let FileAttributeType::Uint32(mode) = value {
+                let permissions = fs::Permissions::from_mode(*mode);
+                fs::set_permissions(path, permissions)
+                    .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to set mode: {}", e)))?;
+            }
+        }
+        // Unix UID
+        "unix::uid" => {
+            if let FileAttributeType::Uint32(uid) = value {
+                let metadata = fs::metadata(path)
+                    .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to get metadata: {}", e)))?;
+                let gid = metadata.gid();
+                unsafe {
+                    let ret = libc::chown(
+                        std::ffi::CString::new(path.as_os_str().as_bytes())
+                            .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?
+                            .as_ptr(),
+                        *uid as libc::uid_t,
+                        gid as libc::gid_t,
+                    );
+                    if ret != 0 {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Failed,
+                            format!("chown failed: {}", std::io::Error::last_os_error())
+                        ));
+                    }
+                }
+            }
+        }
+        // Unix GID
+        "unix::gid" => {
+            if let FileAttributeType::Uint32(gid) = value {
+                let metadata = fs::metadata(path)
+                    .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to get metadata: {}", e)))?;
+                let uid = metadata.uid();
+                unsafe {
+                    let ret = libc::chown(
+                        std::ffi::CString::new(path.as_os_str().as_bytes())
+                            .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?
+                            .as_ptr(),
+                        uid as libc::uid_t,
+                        *gid as libc::gid_t,
+                    );
+                    if ret != 0 {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Failed,
+                            format!("chown failed: {}", std::io::Error::last_os_error())
+                        ));
+                    }
+                }
+            }
+        }
+        // Modification time
+        "time::modified" => {
+            if let FileAttributeType::Uint64(timestamp) = value {
+                let metadata = fs::metadata(path)
+                    .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to get metadata: {}", e)))?;
+                let accessed = metadata.accessed()
+                    .unwrap_or_else(|_| SystemTime::now());
+                
+                let modified = UNIX_EPOCH + Duration::from_secs(*timestamp);
+                
+                // Use utimes to set both access and modification time
+                unsafe {
+                    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?;
+                    
+                    let accessed_duration = accessed.duration_since(UNIX_EPOCH)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid access time: {}", e)))?;
+                    let modified_duration = modified.duration_since(UNIX_EPOCH)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid modified time: {}", e)))?;
+                    
+                    let times = [
+                        libc::timeval {
+                            tv_sec: accessed_duration.as_secs() as i64,
+                            tv_usec: accessed_duration.subsec_micros() as i64,
+                        },
+                        libc::timeval {
+                            tv_sec: modified_duration.as_secs() as i64,
+                            tv_usec: modified_duration.subsec_micros() as i64,
+                        },
+                    ];
+                    
+                    let ret = libc::utimes(c_path.as_ptr(), times.as_ptr());
+                    if ret != 0 {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Failed,
+                            format!("utimes failed: {}", std::io::Error::last_os_error())
+                        ));
+                    }
+                }
+            }
+        }
+        // Access time
+        "time::accessed" => {
+            if let FileAttributeType::Uint64(timestamp) = value {
+                let metadata = fs::metadata(path)
+                    .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to get metadata: {}", e)))?;
+                let modified = metadata.modified()
+                    .unwrap_or_else(|_| SystemTime::now());
+                
+                let accessed = UNIX_EPOCH + Duration::from_secs(*timestamp);
+                
+                unsafe {
+                    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?;
+                    
+                    let accessed_duration = accessed.duration_since(UNIX_EPOCH)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid access time: {}", e)))?;
+                    let modified_duration = modified.duration_since(UNIX_EPOCH)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid modified time: {}", e)))?;
+                    
+                    let times = [
+                        libc::timeval {
+                            tv_sec: accessed_duration.as_secs() as i64,
+                            tv_usec: accessed_duration.subsec_micros() as i64,
+                        },
+                        libc::timeval {
+                            tv_sec: modified_duration.as_secs() as i64,
+                            tv_usec: modified_duration.subsec_micros() as i64,
+                        },
+                    ];
+                    
+                    let ret = libc::utimes(c_path.as_ptr(), times.as_ptr());
+                    if ret != 0 {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Failed,
+                            format!("utimes failed: {}", std::io::Error::last_os_error())
+                        ));
+                    }
+                }
+            }
+        }
+        // Display name (rename file)
+        "standard::display-name" => {
+            if let FileAttributeType::String(name) = value {
+                if let Some(parent) = path.parent() {
+                    let new_path = parent.join(name);
+                    // Check if target already exists and handle appropriately
+                    if new_path.exists() && new_path != *path {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Exists,
+                            format!("Target file already exists: {}", new_path.display())
+                        ));
+                    }
+                    fs::rename(path, &new_path)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Failed to rename: {}", e)))?;
+                } else {
+                    return Err(NpioError::new(IOErrorEnum::Failed, "File has no parent directory"));
+                }
+            }
+        }
+        // Extended attributes (xattr)
+        attr if attr.starts_with("xattr::") => {
+            // Extract attribute name
+            let xattr_name = attr.strip_prefix("xattr::").unwrap_or(attr);
+            
+            if let FileAttributeType::ByteString(bytes) = value {
+                unsafe {
+                    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid path: {}", e)))?;
+                    let c_name = std::ffi::CString::new(xattr_name)
+                        .map_err(|e| NpioError::new(IOErrorEnum::Failed, format!("Invalid xattr name: {}", e)))?;
+                    
+                    let ret = libc::setxattr(
+                        c_path.as_ptr(),
+                        c_name.as_ptr(),
+                        bytes.as_ptr() as *const libc::c_void,
+                        bytes.len(),
+                        0, // flags: 0 = create or replace
+                    );
+                    
+                    if ret != 0 {
+                        return Err(NpioError::new(
+                            IOErrorEnum::Failed,
+                            format!("setxattr failed: {}", std::io::Error::last_os_error())
+                        ));
+                    }
+                }
+            }
+        }
+        _ => {
+            // Unknown or unsupported attribute
+            return Err(NpioError::new(
+                IOErrorEnum::NotSupported,
+                format!("Attribute '{}' is not supported for setting", attribute)
+            ));
+        }
+    }
+    
+    Ok(())
+}
+
 struct LocalFileEnumerator {
     read_dir: fs::ReadDir,
 }
