@@ -1,7 +1,7 @@
 //! Services for common filesystem operations
 //!
 //! Provides high-level services:
-//! - PlacesService: XDG user directories (home, documents, etc.)
+//! - User directory helpers: GIO-compatible functions for user directories (home, documents, etc.)
 //! - BookmarksService: GTK bookmarks management
 //! - ThumbnailService: Thumbnail generation and caching
 

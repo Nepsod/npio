@@ -2,7 +2,7 @@ use npio::model::devices::DevicesModel;
 
 #[tokio::test]
 async fn test_devices_model_new() {
-    let model = DevicesModel::new();
+    let _ = DevicesModel::new();
     // Should create successfully
     assert!(true);
 }

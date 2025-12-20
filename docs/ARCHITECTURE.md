@@ -91,7 +91,7 @@ High-level operations with progress reporting:
 ### Services
 
 High-level services built on top of the core API:
-- **PlacesService**: XDG user directories
+- **User directory helpers**: GIO-compatible functions for user directories (home, documents, etc.)
 - **BookmarksService**: GTK bookmarks management
 - **ThumbnailService**: Thumbnail generation and caching
 - **DevicesModel**: Unified view of drives, volumes, mounts

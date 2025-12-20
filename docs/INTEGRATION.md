@@ -120,12 +120,16 @@ while let Some(event) = monitor.next_event().await {
 
 ### Services
 
-#### Places Service
+#### User Directory Helpers (GIO-compatible)
 
 ```rust
-use npio::PlacesService;
+use npio::{get_home_file, get_user_special_file, UserDirectory};
 
-let service = PlacesService::new();
+// Get home directory (separate from special directories in GIO)
+let home_file = get_home_file()?;
+
+// Get special directories (matching GIO's g_get_user_special_dir())
+let docs_file = get_user_special_file(UserDirectory::Documents)?;
 let places = service.get_common_places();
 
 for place in places {
