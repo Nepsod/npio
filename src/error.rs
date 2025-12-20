@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IOErrorEnum {
     NotFound,
     Exists,

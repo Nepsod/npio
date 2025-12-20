@@ -79,6 +79,6 @@ pub use mount::Mount;
 pub use job::{CopyFlags, ProgressCallback, trash};
 pub use service::places::{PlacesService, Place};
 pub use service::bookmarks::{BookmarksService, Bookmark};
-pub use service::thumbnail::ThumbnailService;
+pub use service::thumbnail::{ThumbnailService, ThumbnailEvent, ThumbnailImage, ThumbnailImageCache};
 pub use backend::thumbnail::{ThumbnailBackend, ThumbnailSize};
 pub use volume::Volume;
