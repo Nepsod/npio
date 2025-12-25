@@ -119,14 +119,27 @@ fn parse_user_dirs_file(content: &str, home_dir: &Path) -> HashMap<UserDirectory
             PathBuf::from(path_str)
         };
         
-        // Remove trailing slashes (but keep root slash for absolute paths)
-        let min_len = if is_relative { 0 } else { 1 };
-        let path_str = path.to_string_lossy();
-        let trimmed = path_str.trim_end_matches('/');
-        let final_path = if trimmed.len() >= min_len {
-            PathBuf::from(trimmed)
+        // PathBuf automatically normalizes trailing slashes, but we need to handle
+        // the case where the path might be just "/" (root). For relative paths,
+        // we want to remove trailing slashes. For absolute paths, we keep at least "/".
+        let final_path = if is_relative {
+            // For relative paths, remove trailing slashes by converting to string and back
+            let path_str = path.to_string_lossy();
+            let trimmed = path_str.trim_end_matches('/');
+            if trimmed.is_empty() {
+                path
+            } else {
+                PathBuf::from(trimmed)
+            }
         } else {
-            path
+            // For absolute paths, keep at least "/" but remove other trailing slashes
+            let path_str = path.to_string_lossy();
+            let trimmed = path_str.trim_end_matches('/');
+            if trimmed.is_empty() || trimmed == "/" {
+                PathBuf::from("/")
+            } else {
+                PathBuf::from(trimmed)
+            }
         };
         
         // Store (duplicates override previous value, matching GLib behavior)
