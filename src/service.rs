@@ -1,11 +1,8 @@
 //! Services for common filesystem operations
 //!
 //! Provides high-level services:
-//! - User directory helpers: GIO-compatible functions for user directories (home, documents, etc.)
-//! - BookmarksService: GTK bookmarks management
 //! - ThumbnailService: Thumbnail generation and caching
+//! - VolumeMonitor: Device and volume monitoring
 
-pub mod places;
-pub mod bookmarks;
 pub mod thumbnail;
 pub mod volumemonitor;

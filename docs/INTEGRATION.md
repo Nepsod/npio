@@ -120,41 +120,6 @@ while let Some(event) = monitor.next_event().await {
 
 ### Services
 
-#### User Directory Helpers (GIO-compatible)
-
-```rust
-use npio::{get_home_file, get_user_special_file, UserDirectory};
-
-// Get home directory (separate from special directories in GIO)
-let home_file = get_home_file()?;
-
-// Get special directories (matching GIO's g_get_user_special_dir())
-let docs_file = get_user_special_file(UserDirectory::Documents)?;
-let places = service.get_common_places();
-
-for place in places {
-    println!("{}: {}", place.name, place.file);
-}
-```
-
-#### Bookmarks Service
-
-```rust
-use npio::BookmarksService;
-
-let mut service = BookmarksService::new();
-service.load().await?;
-
-// Add bookmark
-service.add_bookmark(
-    "file:///home/user/Documents".to_string(),
-    Some("Documents".to_string()),
-);
-
-// Save
-service.save().await?;
-```
-
 #### Thumbnail Service
 
 ```rust

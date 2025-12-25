@@ -9,7 +9,7 @@ npio is a Rust-native Input-Output library inspired by GLib's GIO, providing uni
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Application Layer                     │
-│  (Services: Places, Bookmarks, Thumbnail, Devices)           │
+│  (Services: Thumbnail, VolumeMonitor, Devices)               │
 └───────────────────────┬───────────────────────────────────────┘
                         │
 ┌───────────────────────▼───────────────────────────────────────┐
@@ -91,9 +91,8 @@ High-level operations with progress reporting:
 ### Services
 
 High-level services built on top of the core API:
-- **User directory helpers**: GIO-compatible functions for user directories (home, documents, etc.)
-- **BookmarksService**: GTK bookmarks management
 - **ThumbnailService**: Thumbnail generation and caching
+- **VolumeMonitor**: Device and volume monitoring
 - **DevicesModel**: Unified view of drives, volumes, mounts
 
 ## Data Flow

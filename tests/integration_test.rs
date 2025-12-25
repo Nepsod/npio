@@ -7,8 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use npio::backend::local::LocalBackend;
 use npio::{
     get_file_for_uri, register_backend, CopyFlags, DirectoryModel, DirectoryUpdate,
-    get_home_file, get_user_special_file, UserDirectory, BookmarksService, ThumbnailService,
-    ThumbnailSize, MountBackend,
+    ThumbnailService, ThumbnailSize, MountBackend,
 };
 use npio::job;
 
@@ -152,44 +151,15 @@ async fn test_directory_model_with_monitoring() {
     tokio::fs::remove_dir_all(&test_dir).await.ok();
 }
 
-/// Test services working together: User directories, Bookmarks, Thumbnail
+/// Test Thumbnail Service
 #[tokio::test]
-async fn test_services_integration() {
-    // Test user directory helpers (GIO-compatible)
-    let home_file = get_home_file();
-    assert!(home_file.is_ok());
-    
-    // Test getting special directories
-    let docs_file = get_user_special_file(UserDirectory::Documents);
-    assert!(docs_file.is_ok());
-    // At least one special directory should be available
-    let has_any_dir = [
-        UserDirectory::Desktop,
-        UserDirectory::Documents,
-        UserDirectory::Download,
-        UserDirectory::Music,
-        UserDirectory::Pictures,
-        UserDirectory::Videos,
-    ].iter().any(|dir| {
-        get_user_special_file(*dir).ok().flatten().is_some()
-    });
-    assert!(has_any_dir);
-
-    // Test Bookmarks Service
-    let mut bookmarks_service = BookmarksService::new();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let home_uri = format!("file://{}", home);
-
-    // Add a bookmark
-    bookmarks_service.add_bookmark(home_uri.clone(), Some("Home".to_string()));
-    assert!(bookmarks_service.has_bookmark(&home_uri));
-    assert_eq!(bookmarks_service.get_bookmarks().len(), 1);
-
-    // Test Thumbnail Service (basic check)
+async fn test_thumbnail_service_integration() {
     let backend = Arc::new(LocalBackend::new());
     register_backend(backend);
 
     let thumbnail_service = ThumbnailService::new();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home_uri = format!("file://{}", home);
     let test_file = get_file_for_uri(&home_uri).unwrap();
 
     // Try to get thumbnail (may not exist, but should not error)

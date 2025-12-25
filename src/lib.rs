@@ -14,7 +14,7 @@
 //! - **File**: URI-based file handles that abstract over different backends
 //! - **FileInfo**: Metadata bag with attribute system (standard::*, time::*, etc.)
 //! - **Backend**: Pluggable backends for different URI schemes (file://, etc.)
-//! - **Services**: High-level services like Bookmarks and Thumbnails
+//! - **Services**: High-level services like Thumbnails and VolumeMonitor
 //! - **Jobs**: Async operations like copy, move, delete, trash with progress reporting
 //!
 //! ## Example
@@ -77,8 +77,6 @@ pub use model::devices::DevicesModel;
 pub use monitor::{FileMonitor, FileMonitorEvent};
 pub use mount::Mount;
 pub use job::{CopyFlags, ProgressCallback, trash};
-pub use service::places::{get_home_file, get_user_special_file, get_home_icon_name, get_directory_icon_name, reload_user_special_dirs_cache, UserDirectory};
-pub use service::bookmarks::{BookmarksService, Bookmark};
 pub use service::thumbnail::{ThumbnailService, ThumbnailEvent, ThumbnailImage, ThumbnailImageCache};
 pub use service::volumemonitor::{VolumeMonitor, VolumeMonitorEvent};
 pub use backend::thumbnail::{ThumbnailBackend, ThumbnailSize};
