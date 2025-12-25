@@ -45,7 +45,16 @@ pub enum UserDirectory {
 /// ```
 ///
 /// Returns a map of directory types to paths.
-fn parse_user_dirs_file(content: &str, home_dir: &Path) -> HashMap<UserDirectory, PathBuf> {
+///
+/// # Note
+/// This function is public for testing purposes only. It should not be used
+/// in production code. Use `get_user_special_file()` instead.
+#[doc(hidden)]
+pub fn parse_user_dirs_file(content: &str, home_dir: &Path) -> HashMap<UserDirectory, PathBuf> {
+    parse_user_dirs_file_impl(content, home_dir)
+}
+
+fn parse_user_dirs_file_impl(content: &str, home_dir: &Path) -> HashMap<UserDirectory, PathBuf> {
     let mut dirs = HashMap::new();
     
     for line in content.lines() {

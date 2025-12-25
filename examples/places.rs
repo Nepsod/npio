@@ -4,9 +4,15 @@
 //! to get common directory locations, following GIO's pattern.
 
 use npio::service::places::{get_home_file, get_user_special_file, UserDirectory};
+use npio::backend::local::LocalBackend;
+use npio::register_backend;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Register local backend
+    let backend = Arc::new(LocalBackend::new());
+    register_backend(backend);
     // Get home directory (separate from special directories in GIO)
     match get_home_file() {
         Ok(home_file) => {
