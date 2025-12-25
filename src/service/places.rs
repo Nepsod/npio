@@ -40,7 +40,7 @@ pub enum UserDirectory {
 /// Parses the XDG user-dirs.dirs file, matching GLib's implementation.
 ///
 /// The file format is:
-/// ```
+/// ```text
 /// XDG_DESKTOP_DIR="$HOME/Desktop"
 /// XDG_DOCUMENTS_DIR="$HOME/Documents"
 /// ...
@@ -68,22 +68,22 @@ fn parse_user_dirs_file_impl(content: &str, home_dir: &Path) -> HashMap<UserDire
         }
         
         // Find the directory type
-        let (directory, rest) = if line.starts_with("XDG_DESKTOP_DIR") {
-            (UserDirectory::Desktop, &line[15..])
-        } else if line.starts_with("XDG_DOCUMENTS_DIR") {
-            (UserDirectory::Documents, &line[17..])
-        } else if line.starts_with("XDG_DOWNLOAD_DIR") {
-            (UserDirectory::Download, &line[16..])
-        } else if line.starts_with("XDG_MUSIC_DIR") {
-            (UserDirectory::Music, &line[13..])
-        } else if line.starts_with("XDG_PICTURES_DIR") {
-            (UserDirectory::Pictures, &line[16..])
-        } else if line.starts_with("XDG_PUBLICSHARE_DIR") {
-            (UserDirectory::PublicShare, &line[19..])
-        } else if line.starts_with("XDG_TEMPLATES_DIR") {
-            (UserDirectory::Templates, &line[17..])
-        } else if line.starts_with("XDG_VIDEOS_DIR") {
-            (UserDirectory::Videos, &line[14..])
+        let (directory, rest) = if let Some(rest) = line.strip_prefix("XDG_DESKTOP_DIR") {
+            (UserDirectory::Desktop, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_DOCUMENTS_DIR") {
+            (UserDirectory::Documents, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_DOWNLOAD_DIR") {
+            (UserDirectory::Download, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_MUSIC_DIR") {
+            (UserDirectory::Music, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_PICTURES_DIR") {
+            (UserDirectory::Pictures, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_PUBLICSHARE_DIR") {
+            (UserDirectory::PublicShare, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_TEMPLATES_DIR") {
+            (UserDirectory::Templates, rest)
+        } else if let Some(rest) = line.strip_prefix("XDG_VIDEOS_DIR") {
+            (UserDirectory::Videos, rest)
         } else {
             continue;
         };
@@ -92,22 +92,21 @@ fn parse_user_dirs_file_impl(content: &str, home_dir: &Path) -> HashMap<UserDire
         let rest = rest.trim_start();
         
         // Expect '='
-        if !rest.starts_with('=') {
-            continue;
-        }
-        let rest = &rest[1..].trim_start();
+        let rest = match rest.strip_prefix('=') {
+            Some(r) => r.trim_start(),
+            None => continue,
+        };
         
         // Expect opening quote
-        if !rest.starts_with('"') {
-            continue;
-        }
-        let rest = &rest[1..];
+        let rest = match rest.strip_prefix('"') {
+            Some(r) => r,
+            None => continue,
+        };
         
         // Check if it starts with $HOME
-        let (path_str, is_relative) = if rest.starts_with("$HOME") {
-            let rest = &rest[5..];
-            if rest.starts_with('/') || rest.starts_with('"') {
-                (rest, true)
+        let (path_str, is_relative) = if let Some(rest_after_home) = rest.strip_prefix("$HOME") {
+            if rest_after_home.starts_with('/') || rest_after_home.starts_with('"') {
+                (rest_after_home, true)
             } else {
                 continue;
             }
