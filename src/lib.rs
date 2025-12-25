@@ -77,7 +77,7 @@ pub use model::devices::DevicesModel;
 pub use monitor::{FileMonitor, FileMonitorEvent};
 pub use mount::Mount;
 pub use job::{CopyFlags, ProgressCallback, trash};
-pub use service::places::{get_home_file, get_user_special_file, get_home_icon_name, get_directory_icon_name, UserDirectory};
+pub use service::places::{get_home_file, get_user_special_file, get_home_icon_name, get_directory_icon_name, reload_user_special_dirs_cache, UserDirectory};
 pub use service::bookmarks::{BookmarksService, Bookmark};
 pub use service::thumbnail::{ThumbnailService, ThumbnailEvent, ThumbnailImage, ThumbnailImageCache};
 pub use service::volumemonitor::{VolumeMonitor, VolumeMonitorEvent};

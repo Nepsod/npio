@@ -9,6 +9,8 @@
 
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 use directories::UserDirs;
 use crate::backend::get_file_for_uri;
 use crate::error::NpioResult;
@@ -182,11 +184,38 @@ fn get_user_dirs_file_path() -> Option<PathBuf> {
     None
 }
 
+/// Cached user special directories (matching GLib's caching behavior).
+static USER_SPECIAL_DIRS: Lazy<Mutex<Option<HashMap<UserDirectory, PathBuf>>>> = Lazy::new(|| Mutex::new(None));
+
 /// Loads user special directories from XDG user-dirs.dirs file.
 ///
 /// Returns a map of directory types to paths. Falls back to UserDirs crate
 /// if the file doesn't exist or can't be parsed.
+///
+/// Results are cached after first load (matching GLib's `g_get_user_special_dir()` behavior).
 fn load_user_special_dirs() -> HashMap<UserDirectory, PathBuf> {
+    // Check cache first
+    {
+        let cache = USER_SPECIAL_DIRS.lock().unwrap();
+        if let Some(ref dirs) = *cache {
+            return dirs.clone();
+        }
+    }
+    
+    // Load directories
+    let dirs = load_user_special_dirs_impl();
+    
+    // Cache the result
+    {
+        let mut cache = USER_SPECIAL_DIRS.lock().unwrap();
+        *cache = Some(dirs.clone());
+    }
+    
+    dirs
+}
+
+/// Internal implementation that actually loads the directories.
+fn load_user_special_dirs_impl() -> HashMap<UserDirectory, PathBuf> {
     let mut dirs = HashMap::new();
     
     // Get home directory
@@ -285,6 +314,9 @@ pub fn get_home_file() -> NpioResult<Box<dyn File>> {
 /// Reads from `~/.config/user-dirs.dirs` (or `$XDG_CONFIG_HOME/user-dirs.dirs`)
 /// following the XDG User Directories specification, matching GLib's implementation.
 ///
+/// Results are cached after first load (matching GLib's behavior). To reload
+/// the cache (e.g., after the user-dirs.dirs file changes), use `reload_user_special_dirs_cache()`.
+///
 /// # Arguments
 /// * `directory` - The type of special directory to get
 ///
@@ -368,4 +400,19 @@ pub fn get_home_icon_name(use_symbolic: bool) -> &'static str {
     } else {
         "user-home"
     }
+}
+
+/// Reloads the cache used for `get_user_special_file()`.
+///
+/// This matches GLib's `g_reload_user_special_dirs_cache()` function. Call this
+/// if you've changed the user-dirs.dirs file and want to see the changes without
+/// restarting the application.
+///
+/// # Note
+/// Due to thread safety, this may cause some memory to be leaked for directories
+/// that changed value (matching GLib's behavior). This is generally acceptable
+/// as user directories rarely change during runtime.
+pub fn reload_user_special_dirs_cache() {
+    let mut cache = USER_SPECIAL_DIRS.lock().unwrap();
+    *cache = None; // Clear cache, will be reloaded on next access
 }
