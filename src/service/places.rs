@@ -195,9 +195,20 @@ static USER_SPECIAL_DIRS: Lazy<Mutex<Option<HashMap<UserDirectory, PathBuf>>>> =
 fn load_user_special_dirs() -> HashMap<UserDirectory, PathBuf> {
     // Check cache first
     {
-        let cache = USER_SPECIAL_DIRS.lock().unwrap();
-        if let Some(ref dirs) = *cache {
-            return dirs.clone();
+        match USER_SPECIAL_DIRS.lock() {
+            Ok(cache) => {
+                if let Some(ref dirs) = *cache {
+                    return dirs.clone();
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to acquire lock on user special dirs cache: {}", e);
+                // Try to recover from poisoned lock
+                let cache = e.into_inner();
+                if let Some(ref dirs) = *cache {
+                    return dirs.clone();
+                }
+            }
         }
     }
     
@@ -206,8 +217,17 @@ fn load_user_special_dirs() -> HashMap<UserDirectory, PathBuf> {
     
     // Cache the result
     {
-        let mut cache = USER_SPECIAL_DIRS.lock().unwrap();
-        *cache = Some(dirs.clone());
+        match USER_SPECIAL_DIRS.lock() {
+            Ok(mut cache) => {
+                *cache = Some(dirs.clone());
+            }
+            Err(e) => {
+                eprintln!("Failed to acquire lock on user special dirs cache: {}", e);
+                // Try to recover from poisoned lock
+                let mut cache = e.into_inner();
+                *cache = Some(dirs.clone());
+            }
+        }
     }
     
     dirs
@@ -412,6 +432,15 @@ pub fn get_home_icon_name(use_symbolic: bool) -> &'static str {
 /// that changed value (matching GLib's behavior). This is generally acceptable
 /// as user directories rarely change during runtime.
 pub fn reload_user_special_dirs_cache() {
-    let mut cache = USER_SPECIAL_DIRS.lock().unwrap();
-    *cache = None; // Clear cache, will be reloaded on next access
+    match USER_SPECIAL_DIRS.lock() {
+        Ok(mut cache) => {
+            *cache = None; // Clear cache, will be reloaded on next access
+        }
+        Err(e) => {
+            eprintln!("Failed to acquire lock on user special dirs cache: {}", e);
+            // Try to recover from poisoned lock
+            let mut cache = e.into_inner();
+            *cache = None;
+        }
+    }
 }
