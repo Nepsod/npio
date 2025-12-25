@@ -150,3 +150,104 @@ async fn test_devices_model_udisks2_integration() {
     assert!(refresh_result.is_ok());
 }
 
+/// Test volume class identifier support
+/// Note: This test will skip if UDisks2 is not available
+#[tokio::test]
+async fn test_volume_class_identifier() {
+    let backend = UDisks2Backend::new();
+    
+    // Check if UDisks2 is available
+    if !backend.is_available().await {
+        // Skip test if UDisks2 is not available
+        return;
+    }
+    
+    // Try to get volumes
+    match backend.get_volumes(None).await {
+        Ok(volumes) => {
+            // If we get volumes, verify class identifier support
+            for volume in volumes {
+                // Test that class identifier is always available
+                let class = volume.get_identifier("class");
+                assert!(class.is_some(), "Volume should always have a class identifier");
+                let class_str = class.unwrap();
+                assert!(
+                    class_str == "device" || class_str == "loop",
+                    "Class should be 'device' or 'loop', got: {}",
+                    class_str
+                );
+                
+                // Test that enumerate_identifiers includes "class"
+                let identifiers = volume.enumerate_identifiers();
+                assert!(
+                    identifiers.contains(&"class".to_string()),
+                    "enumerate_identifiers() should include 'class'"
+                );
+                
+                // Test that other identifiers still work
+                let _uuid = volume.get_identifier("uuid");
+                let _label = volume.get_identifier("label");
+                let _device = volume.get_identifier("unix-device");
+            }
+        }
+        Err(e) => {
+            // If error occurs, log it but don't fail the test
+            eprintln!("UDisks2: Failed to get volumes (this is acceptable): {}", e);
+        }
+    }
+}
+
+/// Test volume class identifier for loop devices
+/// This test verifies that loop devices are correctly identified
+#[tokio::test]
+async fn test_volume_class_identifier_loop() {
+    let backend = UDisks2Backend::new();
+    
+    // Check if UDisks2 is available
+    if !backend.is_available().await {
+        // Skip test if UDisks2 is not available
+        return;
+    }
+    
+    // Try to get volumes
+    match backend.get_volumes(None).await {
+        Ok(volumes) => {
+            // Check if any volumes are loop devices
+            let mut found_loop = false;
+            let mut found_device = false;
+            
+            for volume in volumes {
+                let class = volume.get_identifier("class");
+                if let Some(class_str) = class {
+                    if class_str == "loop" {
+                        found_loop = true;
+                        // Verify it's actually a loop device
+                        let device = volume.get_identifier("unix-device");
+                        if let Some(device_path) = device {
+                            assert!(
+                                device_path.contains("/loop") || device_path.starts_with("loop"),
+                                "Loop device should have 'loop' in device path: {}",
+                                device_path
+                            );
+                        }
+                    } else if class_str == "device" {
+                        found_device = true;
+                    }
+                }
+            }
+            
+            // At least one volume should be classified as "device" (most common case)
+            // Loop devices may or may not be present, so we don't require them
+            // Just verify the classification logic works
+            assert!(
+                found_device || found_loop,
+                "Should find at least one volume with class 'device' or 'loop'"
+            );
+        }
+        Err(e) => {
+            // If error occurs, log it but don't fail the test
+            eprintln!("UDisks2: Failed to get volumes (this is acceptable): {}", e);
+        }
+    }
+}
+

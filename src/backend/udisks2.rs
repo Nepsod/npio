@@ -1005,6 +1005,22 @@ impl Volume for UDisks2Volume {
             "uuid" => self.uuid.clone(),
             "label" => self.label.clone(),
             "unix-device" => self.device.clone(),
+            "class" => {
+                // Determine class based on device path
+                // - Loop devices: /dev/loop0, /dev/loop1, etc. → "loop"
+                // - Network mounts: Not managed by UDisks2 (handled separately)
+                // - All other block devices → "device"
+                if let Some(ref device) = self.device {
+                    if device.contains("/loop") || device.starts_with("loop") {
+                        Some("loop".to_string())
+                    } else {
+                        Some("device".to_string())
+                    }
+                } else {
+                    // Default to "device" if no device path available
+                    Some("device".to_string())
+                }
+            }
             _ => None,
         }
     }
@@ -1020,6 +1036,8 @@ impl Volume for UDisks2Volume {
         if self.device.is_some() {
             result.push("unix-device".to_string());
         }
+        // Class is always available
+        result.push("class".to_string());
         result
     }
 }
