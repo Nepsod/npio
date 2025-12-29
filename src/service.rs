@@ -6,3 +6,6 @@
 
 pub mod thumbnail;
 pub mod volumemonitor;
+pub mod filesystem;
+pub mod io_helpers;
+pub mod icon;
