@@ -706,13 +706,16 @@ impl Mount for UDisks2Mount {
             ));
         }
 
-        // UDisks2 doesn't have a direct remount method
-        // We would need to unmount and remount
-        // For now, return not supported
-        Err(NpioError::new(
-            IOErrorEnum::NotSupported,
-            "Remount not yet implemented",
-        ))
+        // Get the volume to remount
+        let volume = UDisks2Volume::new(self.connection.clone(), &self.volume_path).await?;
+        
+        // Unmount first
+        self.unmount(cancellable).await?;
+        
+        // Then remount
+        volume.mount(cancellable).await?;
+
+        Ok(())
     }
 }
 
