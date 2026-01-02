@@ -113,7 +113,7 @@ async fn test_icon_registry_theme_switching() {
         assert_eq!(registry.theme(), "hicolor");
         
         // Switch back
-        let result2 = registry.set_theme(initial_theme.clone());
+        let result2 = registry.set_theme(initial_theme.to_string());
         if result2.is_ok() {
             assert_eq!(registry.theme(), initial_theme);
         }
