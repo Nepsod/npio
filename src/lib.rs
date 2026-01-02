@@ -59,6 +59,7 @@ pub mod model;
 pub mod monitor;
 pub mod mount;
 pub mod service;
+pub mod uri;
 pub mod volume;
 
 pub use backend::{Backend, BackendRegistry, get_file_for_uri, register_backend};

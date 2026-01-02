@@ -2,6 +2,7 @@
 
 use crate::file::File;
 use crate::service::filesystem::mime_detector::MimeDetector;
+use crate::uri::decode_file_uri;
 
 /// Icon data representing an icon for a file entry.
 #[derive(Debug, Clone)]
@@ -208,8 +209,12 @@ impl IconProvider for MimeIconProvider {
             // Use MimeDetector to detect MIME type from path or extension
             let uri = file.uri();
             let path = if uri.starts_with("file://") {
-                // Parse file:// URI to get path
-                std::path::PathBuf::from(uri.trim_start_matches("file://"))
+                // Decode file:// URI properly
+                decode_file_uri(&uri)
+                    .map_err(|e| {
+                        log::warn!("MimeIconProvider: Failed to decode URI: {}", e);
+                    })
+                    .ok()?
             } else {
                 // For non-file URIs, use basename for extension detection
                 std::path::PathBuf::from(&basename)
