@@ -251,3 +251,51 @@ async fn test_volume_class_identifier_loop() {
     }
 }
 
+
+/// Test UDisks2Mount remount operation
+/// Note: This test will skip if UDisks2 is not available or no mounted volumes exist
+#[tokio::test]
+#[ignore] // Requires UDisks2 and a mounted volume, may require root
+async fn test_udisks2_mount_remount() {
+    let backend = UDisks2Backend::new();
+    
+    // Check if UDisks2 is available
+    if !backend.is_available().await {
+        // Skip test if UDisks2 is not available
+        eprintln!("UDisks2 not available, skipping remount test");
+        return;
+    }
+    
+    // Get mounts
+    match backend.get_mounts(None).await {
+        Ok(mounts) => {
+            if mounts.is_empty() {
+                eprintln!("No mounted volumes found, skipping remount test");
+                return;
+            }
+            
+            // Find a mount that can be remounted
+            for mount in mounts {
+                if mount.can_unmount() {
+                    // Try to remount
+                    let result = mount.remount(None).await;
+                    
+                    // Result depends on permissions and device state
+                    // Just verify it doesn't panic
+                    if result.is_err() {
+                        eprintln!("Remount failed (may require root or device busy): {:?}", result);
+                    } else {
+                        // If successful, verify mount is still accessible
+                        let root = mount.get_root();
+                        let _uri = root.uri(); // Just verify it doesn't panic
+                    }
+                    break; // Test one mount
+                }
+            }
+        }
+        Err(e) => {
+            // If error occurs, log it but don't fail the test
+            eprintln!("UDisks2: Failed to get mounts (this is acceptable): {}", e);
+        }
+    }
+}
