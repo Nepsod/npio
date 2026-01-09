@@ -36,6 +36,7 @@ pub enum IOErrorEnum {
     Interrupted,
     UnexpectedEof,
     OutOfMemory,
+    Busy,
     Other,
 }
 
@@ -44,6 +45,16 @@ pub struct NpioError {
     domain: IOErrorEnum,
     message: String,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
+}
+
+impl Clone for NpioError {
+    fn clone(&self) -> Self {
+        Self {
+            domain: self.domain,
+            message: self.message.clone(),
+            source: None, // We can't clone the source, so we drop it
+        }
+    }
 }
 
 impl NpioError {

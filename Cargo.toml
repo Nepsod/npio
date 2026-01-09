@@ -38,9 +38,12 @@ cosmic-mime-apps = { git = "https://github.com/pop-os/cosmic-mime-apps.git" }
 mime = "0.3"
 shared-mime = { version = "0.1.0", features = ["xdg-runtime"] }
 anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1.0"
+tempfile = "3.0"
 
 [lib]
 name = "npio"

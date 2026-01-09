@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9b876502995869c33a747f4ffd2ac85b63f55b0ed454bf7891cc40fdbf7b0a82 # shrinks to num_readers = 1, num_writers = 1, operations_per_thread = 7, progress_values = [0.17247112, 0.33541068, 0.7178613, 0.9457344, 0.67380625, 0.6976084, 0.8810922, 0.5766849, 0.29229882, 0.8528916, 0.81758565, 0.08445643, 0.22201984, 0.9640225, 0.8374605, 0.83671016, 0.2603855, 0.13046893, 0.5973742, 0.5883462]
+cc 8b0e5db7e3c3e9dfb8c221ad81f11823602c55a8f5bc1ddcf526c4dbd3183ceb # shrinks to num_operations = 11, progress_sequences = [[0.0], [0.0], [0.0], [0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], message_sequences = [[" aA A"], ["a A0a"], [" aAaA"], ["0aa0a"], ["Op0AA"]]

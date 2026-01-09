@@ -5,6 +5,8 @@ use crate::drive::Drive;
 use crate::volume::Volume;
 use crate::file::File;
 
+pub mod advanced;
+
 #[async_trait]
 pub trait Mount: Send + Sync + std::fmt::Debug {
     /// Gets the root file for this mount.

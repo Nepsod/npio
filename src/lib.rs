@@ -77,6 +77,14 @@ pub use model::directory::{DirectoryModel, DirectoryUpdate};
 pub use model::devices::DevicesModel;
 pub use monitor::{FileMonitor, FileMonitorEvent};
 pub use mount::Mount;
+pub use mount::advanced::{
+    OperationId, OperationType, OperationState, OperationResult, OperationMetadata,
+    MountOptions, DeviceInfo, CancellationReason, OperationContext, ProgressReporter,
+    ProgressEvent, OperationStage, CancellationManager, CancellationToken,
+    MountValidator, ValidationResult, ValidationError, ValidationWarning, ValidationMetadata,
+    RetryPolicy, BackoffStrategy, ErrorClass, AdvancedMountError,
+    OperationConfig, ProgressConfig, CancellationConfig, ValidationConfig, RetryConfig,
+};
 pub use job::{CopyFlags, ProgressCallback, trash};
 pub use service::thumbnail::{ThumbnailService, ThumbnailEvent, ThumbnailImage, ThumbnailImageCache};
 pub use service::volumemonitor::{VolumeMonitor, VolumeMonitorEvent};
