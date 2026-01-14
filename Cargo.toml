@@ -1,6 +1,6 @@
 [package]
 name = "npio"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
 description = "Nepsod Input-Output library. GIO-inspired library for Linux filesystem and device abstractions."
 edition = "2021"
