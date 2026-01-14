@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use cosmic_mime_apps::{apps_for_mime, associations, List};
 use mime::Mime;
@@ -14,7 +14,7 @@ use shared_mime::{load_mime_db, MimeDB};
 pub struct MimeRegistry {
     apps: Arc<BTreeMap<Arc<str>, Arc<cosmic_mime_apps::App>>>,
     lists: Arc<List>,
-    mime_db: Arc<MimeDB>,
+    mime_db: Arc<Mutex<MimeDB>>,
 }
 
 impl MimeRegistry {
@@ -31,7 +31,7 @@ impl MimeRegistry {
         Self {
             apps: Arc::new(apps),
             lists: Arc::new(lists),
-            mime_db: Arc::new(mime_db),
+            mime_db: Arc::new(Mutex::new(mime_db)),
         }
     }
 
@@ -174,7 +174,7 @@ impl MimeRegistry {
             let block_end = match content[tag_end..].find(end_tag) {
                 Some(i) => tag_end + i + end_tag.len(),
                 None => {
-                    search_start = alias_start + alias_pattern.len();
+                    search_start = tag_end;
                     continue;
                 },
             };
@@ -188,26 +188,27 @@ impl MimeRegistry {
 
     /// Get human-readable description for a MIME type (if available).
     pub fn description(&self, mime: &str) -> Option<String> {
+        let db = self.mime_db.lock().unwrap();
         // Try exact match
-        if let Some(desc) = self.mime_db.description(mime) {
+        if let Some(desc) = db.description(mime) {
             return Some(desc.to_string());
         }
         // Try aliases of this type
-        for alias in self.mime_db.aliases(mime) {
-            if let Some(desc) = self.mime_db.description(alias) {
+        for alias in db.aliases(mime) {
+            if let Some(desc) = db.description(alias) {
                 return Some(desc.to_string());
             }
         }
         // Try reverse: if this type is an alias of another, get that type's description
         if let Some(canonical) = Self::find_canonical_for_alias(mime) {
-            if let Some(desc) = self.mime_db.description(&canonical) {
+            if let Some(desc) = db.description(&canonical) {
                 return Some(desc.to_string());
             }
         }
         // Try supertypes (parents)
-        for parent in self.mime_db.supertypes(mime) {
+        for parent in db.supertypes(mime) {
             let parent = parent.as_ref();
-            if let Some(desc) = self.mime_db.description(parent) {
+            if let Some(desc) = db.description(parent) {
                 return Some(desc.to_string());
             }
         }
@@ -216,12 +217,13 @@ impl MimeRegistry {
 
     /// Get generic-icon name for a MIME type from XML files.
     pub fn generic_icon_name(&self, mime: &str) -> Option<String> {
+        let db = self.mime_db.lock().unwrap();
         // Try exact match
         if let Some(icon) = Self::get_generic_icon_name(mime) {
             return Some(icon);
         }
         // Try aliases
-        for alias in self.mime_db.aliases(mime) {
+        for alias in db.aliases(mime) {
             if let Some(icon) = Self::get_generic_icon_name(alias) {
                 return Some(icon);
             }
@@ -233,7 +235,7 @@ impl MimeRegistry {
             }
         }
         // Try supertypes (parents)
-        for parent in self.mime_db.supertypes(mime) {
+        for parent in db.supertypes(mime) {
             let parent = parent.as_ref();
             if let Some(icon) = Self::get_generic_icon_name(parent) {
                 return Some(icon);
@@ -356,6 +358,7 @@ impl MimeRegistry {
 
     /// Get all known icon name candidates derived from MIME (name, aliases, supertypes).
     pub fn icon_candidates(&self, mime: &str) -> Vec<String> {
+        let db = self.mime_db.lock().unwrap();
         let mut out = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
 
@@ -368,11 +371,11 @@ impl MimeRegistry {
 
         push(mime.to_string(), &mut seen, &mut out);
 
-        for alias in self.mime_db.aliases(mime) {
+        for alias in db.aliases(mime) {
             push(alias.to_string(), &mut seen, &mut out);
         }
 
-        for parent in self.mime_db.supertypes(mime) {
+        for parent in db.supertypes(mime) {
             push(parent.as_ref().to_string(), &mut seen, &mut out);
         }
 
@@ -510,6 +513,9 @@ impl MimeRegistry {
         }
     }
 }
+
+unsafe impl Send for MimeRegistry {}
+unsafe impl Sync for MimeRegistry {}
 
 fn default_mimeapps_paths() -> Vec<std::path::PathBuf> {
     cosmic_mime_apps::list_paths()
