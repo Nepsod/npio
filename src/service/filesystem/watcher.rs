@@ -104,10 +104,11 @@ impl FileSystemWatcher {
                 }
             },
             EventKind::Access(_) => {
+                // Ignore: reads/metadata access (thumbnails, icons) otherwise flood Modified churn.
                 // Access events are treated as modifications
-                for path in event.paths {
-                    changes.push(FileSystemChange::Modified(path));
-                }
+                // for path in event.paths {
+                //     changes.push(FileSystemChange::Modified(path));
+                // }
             },
             EventKind::Other => {
                 // Other event kinds are treated as modifications

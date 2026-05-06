@@ -29,7 +29,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_backend(Arc::new(LocalBackend::new()));
-    
+
     let file = get_file_for_uri("file:///home/user/document.txt")?;
     let info = file.query_info("standard::*,time::modified", None).await?;
     println!("{}: {} bytes", info.get_name().unwrap_or("unknown"), info.get_size());

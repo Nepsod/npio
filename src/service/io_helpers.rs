@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-License-Identifier: LGPL-3.0-only
 
 //! Async I/O helpers using smol::unblock for non-blocking file operations
 
