@@ -87,6 +87,10 @@ pub use mount::advanced::{
 };
 pub use job::{CopyFlags, ProgressCallback, trash};
 pub use service::thumbnail::{ThumbnailService, ThumbnailEvent, ThumbnailImage, ThumbnailImageCache};
+pub use service::filesystem::{
+    TrashEntry, empty_trash, trash_delete_permanently, trash_files_directory, trash_list_items,
+    trash_restore,
+};
 pub use service::volumemonitor::{VolumeMonitor, VolumeMonitorEvent};
 pub use backend::thumbnail::{ThumbnailBackend, ThumbnailSize};
 pub use volume::Volume;

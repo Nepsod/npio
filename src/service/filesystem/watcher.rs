@@ -41,9 +41,14 @@ impl FileSystemWatcher {
         })
     }
 
-    /// Start watching a path for changes.
+    /// Start watching a path for changes (non-recursive).
     pub fn watch(&mut self, path: &Path) -> Result<(), FileSystemError> {
-        self.watcher.watch(path, RecursiveMode::NonRecursive)?;
+        self.watch_with_mode(path, RecursiveMode::NonRecursive)
+    }
+
+    /// Start watching with explicit recursion mode (use [`RecursiveMode::Recursive`] for subtree watches).
+    pub fn watch_with_mode(&mut self, path: &Path, mode: RecursiveMode) -> Result<(), FileSystemError> {
+        self.watcher.watch(path, mode)?;
         Ok(())
     }
 
