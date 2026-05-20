@@ -103,6 +103,24 @@ impl IconRegistry {
         Some(cached_icon)
     }
 
+    /// Get an icon by name and size without blocking the caller's thread.
+    pub async fn get_icon_async(&self, icon_name: &str, size: u32) -> Option<CachedIcon> {
+        if let Some(cached) = self.cache.get(icon_name, size) {
+            return Some(cached);
+        }
+
+        let context = self.guess_context(icon_name);
+        let icon_path = self
+            .lookup
+            .lookup_icon(icon_name, size, context, &self.theme)?;
+
+        let cached_icon = self.loader.load_icon(&icon_path).await.ok()?;
+        self.cache
+            .put(icon_name.to_string(), size, cached_icon.clone());
+
+        Some(cached_icon)
+    }
+
     /// Get an icon for a file with fallback chain.
     pub async fn get_file_icon(&self, file: &dyn File, size: u32) -> Option<CachedIcon> {
         // Get icon candidates from MIME provider
@@ -126,7 +144,7 @@ impl IconRegistry {
 
         // Try specific icons in order
         for name in &icon_data.names {
-            if let Some(icon) = self.get_icon(name, size) {
+            if let Some(icon) = self.get_icon_async(name, size).await {
                 return Some(icon);
             }
         }
@@ -134,7 +152,7 @@ impl IconRegistry {
         // Try generic category for each candidate
         for name in &icon_data.names {
             let generic_name = self.get_generic_icon_name(name);
-            if let Some(icon) = self.get_icon(&generic_name, size) {
+            if let Some(icon) = self.get_icon_async(&generic_name, size).await {
                 log::debug!(
                     "IconRegistry: Found generic icon '{}' from '{}'",
                     generic_name,
@@ -147,7 +165,7 @@ impl IconRegistry {
         // Additional fallbacks for specific cases
         // For media-floppy, try drive-harddisk as fallback
         if icon_data.names.iter().any(|n| n == "media-floppy") {
-            if let Some(icon) = self.get_icon("drive-harddisk", size) {
+            if let Some(icon) = self.get_icon_async("drive-harddisk", size).await {
                 log::debug!("IconRegistry: Using drive-harddisk as fallback for media-floppy");
                 return Some(icon);
             }
@@ -155,15 +173,16 @@ impl IconRegistry {
 
         // For application-toml, try text-x-generic as fallback (TOML is text-like)
         if icon_data.names.iter().any(|n| n == "application-toml") {
-            if let Some(icon) = self.get_icon("text-x-generic", size) {
+            if let Some(icon) = self.get_icon_async("text-x-generic", size).await {
                 log::debug!("IconRegistry: Using text-x-generic as fallback for application-toml");
                 return Some(icon);
             }
         }
 
         // Final fallback: text-x-generic or unknown
-        self.get_icon("text-x-generic", size)
-            .or_else(|| self.get_icon("unknown", size))
+        self.get_icon_async("text-x-generic", size)
+            .await
+            .or(self.get_icon_async("unknown", size).await)
     }
 
     /// Get generic icon name from specific icon name.
