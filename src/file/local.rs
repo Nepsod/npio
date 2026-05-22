@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::os::unix::fs::{PermissionsExt, MetadataExt};
 use std::os::unix::ffi::OsStrExt;
 use async_trait::async_trait;
@@ -40,6 +40,46 @@ impl LocalFile {
     }
 }
 
+fn populate_file_info_from_metadata(
+    info: &mut FileInfo,
+    path: &Path,
+    display_name: &str,
+    metadata: &std::fs::Metadata,
+    include_content_type: bool,
+) {
+    info.set_name(display_name);
+    info.set_size(metadata.len());
+
+    if let Ok(modified) = metadata.modified() {
+        if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+            info.set_modification_time(duration.as_secs());
+        }
+    }
+
+    let file_type = if metadata.is_dir() {
+        FileType::Directory
+    } else if metadata.is_symlink() {
+        FileType::SymbolicLink
+    } else {
+        FileType::Regular
+    };
+    info.set_file_type(file_type);
+
+    if include_content_type {
+        let mime_type = if file_type == FileType::Directory {
+            "inode/directory".to_string()
+        } else {
+            crate::metadata::MimeResolver::guess_mime_type(path)
+        };
+        info.set_content_type(&mime_type);
+        let icon = crate::metadata::MimeResolver::get_icon_name(&mime_type);
+        info.set_attribute(
+            "standard::icon",
+            FileAttributeType::String(icon),
+        );
+    }
+}
+
 #[async_trait]
 impl File for LocalFile {
     fn uri(&self) -> String {
@@ -68,40 +108,17 @@ impl File for LocalFile {
 
         let metadata = fs::symlink_metadata(&self.path).await?;
         let mut info = FileInfo::new();
+        let include_content_type = attributes.contains("standard::content-type")
+            || attributes.contains("standard::icon")
+            || attributes.contains("standard::*");
+        populate_file_info_from_metadata(
+            &mut info,
+            &self.path,
+            &self.basename(),
+            &metadata,
+            include_content_type,
+        );
 
-        info.set_name(&self.basename());
-        info.set_size(metadata.len());
-        
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                info.set_modification_time(duration.as_secs());
-            }
-        }
-
-        let file_type = if metadata.is_dir() {
-            FileType::Directory
-        } else if metadata.is_symlink() {
-            FileType::SymbolicLink
-        } else {
-            FileType::Regular
-        };
-        info.set_file_type(file_type);
-
-        // MIME detection
-        if attributes.contains("standard::content-type") || attributes.contains("standard::*") {
-            let mime_type = if file_type == FileType::Directory {
-                "inode/directory".to_string()
-            } else {
-                crate::metadata::MimeResolver::guess_mime_type(&self.path)
-            };
-            info.set_content_type(&mime_type);
-            
-            if attributes.contains("standard::icon") || attributes.contains("standard::*") {
-                 let icon = crate::metadata::MimeResolver::get_icon_name(&mime_type);
-                 info.set_attribute("standard::icon", crate::file_info::FileAttributeType::String(icon));
-            }
-        }
-        
         Ok(info)
     }
 
@@ -966,25 +983,11 @@ impl FileEnumerator for LocalFileEnumerator {
         match self.read_dir.next_entry().await? {
             Some(entry) => {
                 let path = entry.path();
-                let file = Box::new(LocalFile::new(path.clone()));
-                
-                // We could optimize this by using entry.metadata() if available without extra syscalls
-                // But for consistency let's query the file object (or just basic info here)
+                let name = entry.file_name().to_string_lossy().to_string();
+                let metadata = fs::symlink_metadata(&path).await?;
                 let mut info = FileInfo::new();
-                info.set_name(&entry.file_name().to_string_lossy());
-                
-                // Populate basic type info from entry if possible
-                if let Ok(file_type) = entry.file_type().await {
-                     let ft = if file_type.is_dir() {
-                        FileType::Directory
-                    } else if file_type.is_symlink() {
-                        FileType::SymbolicLink
-                    } else {
-                        FileType::Regular
-                    };
-                    info.set_file_type(ft);
-                }
-
+                populate_file_info_from_metadata(&mut info, &path, &name, &metadata, true);
+                let file = Box::new(LocalFile::new(path));
                 Ok(Some((info, file)))
             }
             None => Ok(None),
