@@ -185,7 +185,7 @@ async fn test_thumbnail_image_cache_storage() {
     let test_image = ThumbnailImage {
         width: 128,
         height: 128,
-        data: vec![0; 128 * 128 * 4], // RGBA
+        data: Arc::from(vec![0; 128 * 128 * 4]),
     };
     
     // Store image

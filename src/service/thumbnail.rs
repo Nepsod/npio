@@ -36,12 +36,12 @@ pub enum ThumbnailEvent {
 pub struct ThumbnailImage {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>, // RGBA, width * height * 4 bytes
+    pub data: Arc<[u8]>,
 }
 
 /// Cache for decoded thumbnail images
 pub struct ThumbnailImageCache {
-    cache: Arc<RwLock<HashMap<String, ThumbnailImage>>>,
+    cache: Arc<RwLock<HashMap<String, Arc<ThumbnailImage>>>>,
 }
 
 impl ThumbnailImageCache {
@@ -52,12 +52,11 @@ impl ThumbnailImageCache {
     }
 
     /// Get a cached image by key (format: "{uri}:{size:?}")
-    pub fn get_image(&self, key: &str) -> Option<ThumbnailImage> {
+    pub fn get_image(&self, key: &str) -> Option<Arc<ThumbnailImage>> {
         match self.cache.read() {
             Ok(cache) => cache.get(key).cloned(),
             Err(e) => {
                 eprintln!("Failed to acquire read lock on image cache: {}", e);
-                // Try to recover from poisoned lock
                 let cache = e.into_inner();
                 cache.get(key).cloned()
             }
@@ -66,13 +65,16 @@ impl ThumbnailImageCache {
 
     /// Store an image in the cache
     pub fn store_image(&self, key: String, image: ThumbnailImage) {
+        self.store_image_arc(key, Arc::new(image));
+    }
+
+    pub fn store_image_arc(&self, key: String, image: Arc<ThumbnailImage>) {
         match self.cache.write() {
             Ok(mut cache) => {
                 cache.insert(key, image);
             }
             Err(e) => {
                 eprintln!("Failed to acquire write lock on image cache: {}", e);
-                // Try to recover from poisoned lock
                 let mut cache = e.into_inner();
                 cache.insert(key, image);
             }
@@ -98,7 +100,7 @@ impl ThumbnailImageCache {
         Ok(ThumbnailImage {
             width,
             height,
-            data,
+            data: Arc::from(data.into_boxed_slice()),
         })
     }
 
@@ -193,7 +195,7 @@ impl ThumbnailService {
         file: &dyn File,
         size: ThumbnailSize,
         cancellable: Option<&Cancellable>,
-    ) -> NpioResult<ThumbnailImage> {
+    ) -> NpioResult<Arc<ThumbnailImage>> {
         if let Some(c) = cancellable {
             c.check()?;
         }
@@ -201,26 +203,21 @@ impl ThumbnailService {
         let uri = file.uri();
         let cache_key = format!("{}:{:?}", uri, size);
 
-        // Check cache first
         if let Some(image) = self.image_cache.get_image(&cache_key) {
             return Ok(image);
         }
 
-        // Get thumbnail path
         let thumbnail_path = match self.get_thumbnail_path(file, size, cancellable).await? {
             Some(path) => path,
             None => {
-                // Generate thumbnail if it doesn't exist
                 self.generate_thumbnail(file, size, cancellable).await?;
                 ThumbnailBackend::get_thumbnail_path(&uri, size)?
             }
         };
 
-        // Load and decode image
-        let image = self.image_cache.load_image(&thumbnail_path).await?;
-        
-        // Store in cache
-        self.image_cache.store_image(cache_key, image.clone());
+        let image = Arc::new(self.image_cache.load_image(&thumbnail_path).await?);
+        self.image_cache
+            .store_image_arc(cache_key, Arc::clone(&image));
 
         Ok(image)
     }

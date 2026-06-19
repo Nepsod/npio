@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use cosmic_mime_apps::{apps_for_mime, associations, List};
 use mime::Mime;
@@ -246,6 +247,23 @@ impl MimeRegistry {
 
     /// Get generic-icon name for a MIME type from XML files (internal, public for icon provider).
     pub fn get_generic_icon_name(mime_type: &str) -> Option<String> {
+        static GENERIC_ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> =
+            OnceLock::new();
+        let cache = GENERIC_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(guard) = cache.lock() {
+            if let Some(cached) = guard.get(mime_type) {
+                return cached.clone();
+            }
+        }
+
+        let resolved = Self::read_generic_icon_name(mime_type);
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(mime_type.to_string(), resolved.clone());
+        }
+        resolved
+    }
+
+    fn read_generic_icon_name(mime_type: &str) -> Option<String> {
         // Try exact file at /usr/share/mime/{major}/{minor}.xml
         if let Some((major, minor)) = mime_type.split_once('/') {
             let path = Path::new("/usr/share/mime")

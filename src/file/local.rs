@@ -40,6 +40,12 @@ impl LocalFile {
     }
 }
 
+fn attributes_include_content_type(attributes: &str) -> bool {
+    attributes.contains("standard::content-type")
+        || attributes.contains("standard::icon")
+        || attributes.contains("standard::*")
+}
+
 fn populate_file_info_from_metadata(
     info: &mut FileInfo,
     path: &Path,
@@ -202,14 +208,17 @@ impl File for LocalFile {
 
     async fn enumerate_children(
         &self,
-        _attributes: &str,
+        attributes: &str,
         cancellable: Option<&Cancellable>,
     ) -> NpioResult<Box<dyn FileEnumerator>> {
         if let Some(c) = cancellable {
             c.check()?;
         }
         let read_dir = fs::read_dir(&self.path).await?;
-        Ok(Box::new(LocalFileEnumerator { read_dir }))
+        Ok(Box::new(LocalFileEnumerator {
+            read_dir,
+            include_content_type: attributes_include_content_type(attributes),
+        }))
     }
 
     async fn move_to(
@@ -968,6 +977,7 @@ fn set_attribute_sync(
 
 struct LocalFileEnumerator {
     read_dir: fs::ReadDir,
+    include_content_type: bool,
 }
 
 #[async_trait]
@@ -986,7 +996,13 @@ impl FileEnumerator for LocalFileEnumerator {
                 let name = entry.file_name().to_string_lossy().to_string();
                 let metadata = fs::symlink_metadata(&path).await?;
                 let mut info = FileInfo::new();
-                populate_file_info_from_metadata(&mut info, &path, &name, &metadata, true);
+                populate_file_info_from_metadata(
+                    &mut info,
+                    &path,
+                    &name,
+                    &metadata,
+                    self.include_content_type,
+                );
                 let file = Box::new(LocalFile::new(path));
                 Ok(Some((info, file)))
             }
